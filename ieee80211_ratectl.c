@@ -1,5 +1,6 @@
 /*-
  * Copyright (c) 2010 Rui Paulo <rpaulo@FreeBSD.org>
+ * Copyright (c) 2013 Chenchong Qin <ccqin@FreeBSD.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,7 +25,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 214937 2010-11-06 18:17:20Z bschmidt $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 255024 2013-07-22 02:21:12Z ccqin $");
 
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -66,10 +67,11 @@ ieee80211_ratectl_unregister(int type)
 }
 
 void
-ieee80211_ratectl_init(struct ieee80211vap *vap)
+ieee80211_ratectl_init(struct ieee80211vap *vap, uint32_t options)
 {
 	if (vap->iv_rate == ratectls[IEEE80211_RATECTL_NONE])
 		ieee80211_ratectl_set(vap, IEEE80211_RATECTL_AMRR);
+	vap->iv_rate.options = options;
 	vap->iv_rate->ir_init(vap);
 }
 
