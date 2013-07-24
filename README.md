@@ -1,7 +1,7 @@
 GSoC2013: net80211 rate control API
 ===========================
 
-This a project of [Google Summer of Code 2013](http://www.google-melange.com/gsoc/homepage/google/gsoc2013).
+This my project on [Google Summer of Code 2013](http://www.google-melange.com/gsoc/homepage/google/gsoc2013).
 
 Project Description
 -------------------
