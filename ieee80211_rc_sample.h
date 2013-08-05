@@ -1,5 +1,6 @@
+/* $FreeBSD: head/sys/dev/ath/ath_rate/sample/sample.h 240382 2012-08-15 07:10:10Z adrian $*/
+
 /*-
- * Copyright (c) 2005 John Bicket
  * Copyright (c) 2013 Chenchong Qin <ccqin@FreeBSD.org>
  * All rights reserved.
  *
@@ -136,6 +137,16 @@ size_to_bin(int size)
 #error "add support for more packet sizes"
 #endif
 	return NUM_PACKET_SIZE_BINS-1;
+}
+
+/*
+ * Calculate the transmit duration of a frame.
+ */
+static unsigned calc_usecs_unicast_packet(int length,
+				int rix, int short_retries,
+				int long_retries, int is_ht40)
+{
+	/* XXX not done yet */
 }
 
 #endif /* _NET80211_IEEE80211_RATECTL_SAMPLE_H_ */
