@@ -139,14 +139,145 @@ size_to_bin(int size)
 	return NUM_PACKET_SIZE_BINS-1;
 }
 
+static uint32_t sample_pkt_txtime(const struct ieee80211_rate_table *rt,
+	uint32_t frameLen, uint16_t rateix, int isht40, int isShortPreamble)
+{
+	uint8_t rc;
+    int numStreams;
+
+    rc = rt->info[rateix].rateCode;
+
+    /* Legacy rate? Return the old way */
+    if (! IS_HT_RATE(rc))
+    	return ieee80211_compute_duration(rt, frameLen, rateix, isShortPreamble);
+
+    /* 11n frame - extract out the number of spatial streams */
+    numStreams = HT_RC_2_STREAMS(rc);
+    KASSERT(numStreams > 0 && numStreams <= 4,
+        ("number of spatial streams needs to be 1..3: MCS rate 0x%x!",
+        rateix));
+
+    return ieee80211_compute_duration_ht(frameLen, rc, numStreams, isht40, isShortPreamble);
+}
+
+#define WIFI_CW_MIN 31
+#define WIFI_CW_MAX 1023
+
 /*
  * Calculate the transmit duration of a frame.
  */
-static unsigned calc_usecs_unicast_packet(int length,
+static unsigned calc_usecs_unicast_packet(const struct ieee80211vap *vap,
+				int length,
 				int rix, int short_retries,
 				int long_retries, int is_ht40)
 {
-	/* XXX not done yet */
+	const struct ieee80211_rate_table *rt = ieee80211_get_ratetable(vap->iv_ic->ic_curchan);
+	struct ieee80211com *ic = vap->iv_ic;
+	int curmode = ieee80211_chan2mode(vap->iv_ic->ic_curchan);
+	
+	unsigned t_slot, t_difs, t_sifs; 
+	int rts, cts;
+	int tt, x, cw, cix;
+
+	int tt = 0;
+	int x = 0;
+	int cw = WIFI_CW_MIN;
+
+	KASSERT(rt != NULL, ("no rate table, mode %u", curmode));
+
+	if (rix >= rt->rateCount) {
+		printf("bogus rix %d, max %u, mode %u\n",
+		       rix, rt->rateCount, curmode);
+		return 0;
+	}
+	cix = rt->info[rix].controlRate;
+	/* 
+	 * XXX getting mac/phy level timings should be fixed for turbo
+	 * rates, and there is probably a way to get this from the
+	 * hal...
+	 */
+	switch (rt->info[rix].phy) {
+	case IEEE80211_T_OFDM:
+		t_slot = 9;
+		t_sifs = 16;
+		t_difs = 28;
+		/* fall through */
+	case IEEE80211_T_TURBO:
+		t_slot = 9;
+		t_sifs = 8;
+		t_difs = 28;
+		break;
+	case IEEE80211_T_HT:
+		t_slot = 9;
+		t_sifs = 8;
+		t_difs = 28;
+		break;
+	case IEEE80211_T_DS:
+		/* fall through to default */
+	default:
+		/* pg 205 ieee.802.11.pdf */
+		t_slot = 20;
+		t_difs = 50;
+		t_sifs = 10;
+	}
+
+	rts = cts = 0;
+
+	if ((ic->ic_flags & IEEE80211_F_USEPROT) &&
+	    rt->info[rix].phy == IEEE80211_T_OFDM) {
+		if (ic->ic_protmode == IEEE80211_PROT_RTSCTS)
+			rts = 1;
+		else if (ic->ic_protmode == IEEE80211_PROT_CTSONLY)
+			cts = 1;
+
+		int protrix;
+    	if (curmode == IEEE80211_MODE_11G)
+    	    protrix = rt->rateCodeToIndex[2*2];
+    	else 
+    	    protrix = rt->rateCodeToIndex[2*1];
+    	if (0xff == protrix)
+    		protrix = 0;
+
+		cix = rt->info[protrix].controlRate;
+	}
+
+	if (0 /*length > ic->ic_rtsthreshold */) {
+		rts = 1;
+	}
+
+	if (rts || cts) {
+		int ctsrate;
+		int ctsduration = 0;
+
+		/* NB: this is intentionally not a runtime check */
+		KASSERT(cix < rt->rateCount,
+		    ("bogus cix %d, max %u, mode %u\n", cix, rt->rateCount,
+		     curmode));
+
+		ctsrate = rt->info[cix].rateCode | rt->info[cix].shortPreamble;
+		if (rts)		/* SIFS + CTS */
+			ctsduration += rt->info[cix].spAckDuration;
+
+		/* XXX assumes short preamble */
+		ctsduration += sample_pkt_txtime(rt, length, rix, is_ht40, 0);
+
+		if (cts)	/* SIFS + ACK */
+			ctsduration += rt->info[cix].spAckDuration;
+
+		tt += (short_retries + 1) * ctsduration;
+	}
+	tt += t_difs;
+
+	/* XXX assumes short preamble */
+	tt += (long_retries+1)*sample_pkt_txtime(rt, length, rix, is_ht40, 0);
+
+	tt += (long_retries+1)*(t_sifs + rt->info[rix].spAckDuration);
+
+	for (x = 0; x <= short_retries + long_retries; x++) {
+		cw = MIN(WIFI_CW_MAX, (cw + 1) * 2);
+		tt += (t_slot * cw/2);
+	}
+	return tt;
 }
 
 #endif /* _NET80211_IEEE80211_RATECTL_SAMPLE_H_ */

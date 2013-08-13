@@ -73,7 +73,7 @@ static const struct ieee80211_ratectl sample = {
 	.ir_node_init	= sample_node_init,
 	.ir_node_deinit	= sample_node_deinit,
 	.ir_rate	= sample_rate,
-	.ir_rates	= NULL,
+	.ir_rates	= sample_rates,
 	.ir_tx_complete	= sample_tx_complete,
 	.ir_tx_update	= sample_tx_update,
 	.ir_setinterval	= sample_setinterval,
@@ -230,7 +230,7 @@ sample_node_init(struct ieee80211_node *ni)
 			san->stats[y][rix].ewma_pct = 0;
 			
 			san->stats[y][rix].perfect_tx_time =
-			    calc_usecs_unicast_packet(size, rix, 0, 0,
+			    calc_usecs_unicast_packet(vap, size, rix, 0, 0,
 			    (ni->ni_chw == 40));
 			san->stats[y][rix].average_tx_time =
 			    san->stats[y][rix].perfect_tx_time;
@@ -778,16 +778,252 @@ done:
 }
 
 static void
+sample_rates(struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
+{
+	struct ieee80211_sample_node *san = ni->ni_rctls;
+	uint8_t rix0 = sample_rate(ni, NULL, 0);
+	const struct txschedule *sched = &san->sched[rix0];
+	struct ieee80211_rc_series *rc = rc_info->ri_rc;
+
+	KASSERT(rix0 == sched->r0, ("rix0 (%x) != sched->r0 (%x)!\n",
+	    rix0, sched->r0));
+	/* XXX */
+	rc[0].flags = rc[1].flags = rc[2].flags = rc[3].flags = 0;
+
+	rc[0].rix = sched->r0;
+	rc[1].rix = sched->r1;
+	rc[2].rix = sched->r2;
+	rc[3].rix = sched->r3;
+
+	rc[0].tries = sched->t0;
+	rc[1].tries = sched->t1;
+	rc[2].tries = sched->t2;
+	rc[3].tries = sched->t3;
+}
+
+static void
+update_stats(const struct ieee80211vap *vap,
+    	  const struct ieee80211_node *ni,
+		  int frame_size,
+		  int rix0, int tries0,
+		  int rix1, int tries1,
+		  int rix2, int tries2,
+		  int rix3, int tries3,
+		  int short_tries, int tries,
+		  int nframes, int nbad)
+{
+	struct ieee80211_sample_node *san = ni->ni_rctls;
+	struct ieee80211_sample *sample = san->san_sample;
+
+	const int size_bin = size_to_bin(frame_size);
+	const int size = bin_to_size(size_bin);
+
+	int is_ht40 = ieee80211_ratectl_hascap_cw40(vap, ni);
+	int tt, tries_so_far;
+	int pct;
+
+	if (!IS_RATE_DEFINED(san, rix0))
+		return;
+	tt = calc_usecs_unicast_packet(vap, size, rix0, short_tries,
+		MIN(tries0, tries) - 1, is_ht40);
+	tries_so_far = tries0;
+
+	if (tries1 && tries_so_far < tries) {
+		if (!IS_RATE_DEFINED(san, rix1))
+			return;
+		tt += calc_usecs_unicast_packet(vap, size, rix1, short_tries,
+			MIN(tries1 + tries_so_far, tries) - tries_so_far - 1, is_ht40);
+		tries_so_far += tries1;
+	}
+
+	if (tries2 && tries_so_far < tries) {
+		if (!IS_RATE_DEFINED(san, rix2))
+			return;
+		tt += calc_usecs_unicast_packet(vap, size, rix2, short_tries,
+			MIN(tries2 + tries_so_far, tries) - tries_so_far - 1, is_ht40);
+		tries_so_far += tries2;
+	}
+
+	if (tries3 && tries_so_far < tries) {
+		if (!IS_RATE_DEFINED(san, rix3))
+			return;
+		tt += calc_usecs_unicast_packet(vap, size, rix3, short_tries,
+			MIN(tries3 + tries_so_far, tries) - tries_so_far - 1, is_ht40);
+	}
+
+	if (san->stats[size_bin][rix0].total_packets < sample->sanple_smoothing_minpackets) {
+		/* just average the first few packets */
+		int avg_tx = san->stats[size_bin][rix0].average_tx_time;
+		int packets = san->stats[size_bin][rix0].total_packets;
+		san->stats[size_bin][rix0].average_tx_time = (tt+(avg_tx*packets))/(packets+nframes);
+	} else {
+		/* use a ewma */
+		san->stats[size_bin][rix0].average_tx_time = 
+			((san->stats[size_bin][rix0].average_tx_time * sample->sanple_smoothing_rate) + 
+			 (tt * (100 - sample->sanple_smoothing_rate))) / 100;
+	}
+	
+	/*
+	 * XXX Don't mark the higher bit rates as also having failed; as this
+	 * unfortunately stops those rates from being tasted when trying to
+	 * TX. This happens with 11n aggregation.
+	 */
+	if (nframes == nbad) {
+		san->stats[size_bin][rix0].successive_failures += nbad;
+
+	} else {
+		san->stats[size_bin][rix0].packets_acked += (nframes - nbad);
+		san->stats[size_bin][rix0].successive_failures = 0;
+	}
+	san->stats[size_bin][rix0].tries += tries;
+	san->stats[size_bin][rix0].last_tx = ticks;
+	san->stats[size_bin][rix0].total_packets += nframes;
+
+	/* update EWMA for this rix */
+
+	/* Calculate percentage based on current rate */
+	if (nframes == 0)
+		nframes = nbad = 1;
+	pct = ((nframes - nbad) * 1000) / nframes;
+
+	if (san->stats[size_bin][rix0].total_packets <
+	    sample->sanple_smoothing_minpackets) {
+		/* just average the first few packets */
+		int a_pct = (san->stats[size_bin][rix0].packets_acked * 1000) /
+		    (san->stats[size_bin][rix0].total_packets);
+		san->stats[size_bin][rix0].ewma_pct = a_pct;
+	} else {
+		/* use a ewma */
+		san->stats[size_bin][rix0].ewma_pct =
+			((san->stats[size_bin][rix0].ewma_pct * sample->sanple_smoothing_rate) +
+			 (pct * (100 - sample->sanple_smoothing_rate))) / 100;
+	}
+
+	if (rix0 == san->current_sample_rix[size_bin]) {
+		san->sample_tt[size_bin] = tt;
+		san->current_sample_rix[size_bin] = -1;
+	}
+}
+
+static void
 sample_tx_complete(const struct ieee80211vap *vap,
     const struct ieee80211_node *ni, int ok,
-    void *arg1, void *arg2 __unused)
+    void *arg1, void *arg2)
 {
+	struct ieee80211_sample_node *san = ni->ni_rctls;
+	const struct ieee80211_rate_table *rt = ieee80211_get_ratetable(vap->iv_ic->ic_curchan);
+
+	/* XXX need to change arg2 to pointer of ieee80211_rc_info */
+	struct ieee80211_rc_info *rc_info = (struct ieee80211_rc_info*)arg2;
+
+	int final_rix, short_tries, long_tries;
+	int nframes, nbad;
+	int frame_size, mrr;
+
+	final_rix = rt->rateCodeToIndex[rc_info->ri_txrate];
+	short_tries = rc_info->ri_shortretry;
+	/* XXX why plus 1 here? */
+	long_tries = rc_info->ri_longretry + 1;
+
+	nframes = rc_info->ri_txcnt;
+	nbad = rc_info->ri_failcnt;
+
+	frame_size = rc_info->ri_framelen;
+	mrr = 0;
+
+	if (nframes == 0) {
+		return;
+	}
+
+	if (frame_size == 0)		    /* NB: should not happen */
+		frame_size = 1500;
+
+	if (san->ratemask == 0) {
+		return;
+	}
+	
+	if (vap->iv_rate->ir_capabilities & IEEE80211_RATECTL_CAP_MRR)
+		mrr = 1;
+	/* XXX check HT protmode too */
+	if (mrr && !(vap->iv_rate->ir_capabilities & IEEE80211_RATECTL_CAP_MRRPROT))
+		mrr = 0;
+
+	if (!mrr || rc_info->ri_finaltsi == 0) {
+		if (!IS_RATE_DEFINED(san, final_rix)) {
+			return;
+		}
+		/*
+		 * Only one rate was used; optimize work.
+		 */
+		update_stats(vap, ni, frame_size, 
+			     final_rix, long_tries,
+			     0, 0,
+			     0, 0,
+			     0, 0,
+			     short_tries, long_tries,
+			     nframes, nbad);
+
+	} else {
+		int finalTSIdx = rc_info->ri_finaltsi;
+		int i;
+
+		/*
+		 * NB: series > 0 are not penalized for failure
+		 * based on the try counts under the assumption
+		 * that losses are often bursty and since we
+		 * sample higher rates 1 try at a time doing so
+		 * may unfairly penalize them.
+		 */
+		if (rc[0].tries) {
+			update_stats(vap, ni, frame_size,
+				     rc[0].rix, rc[0].tries,
+				     rc[1].rix, rc[1].tries,
+				     rc[2].rix, rc[2].tries,
+				     rc[3].rix, rc[3].tries,
+				     short_tries, long_tries,
+				     nframes, nbad);
+			long_tries -= rc[0].tries;
+		}
+		
+		if (rc[1].tries && finalTSIdx > 0) {
+			update_stats(vap, ni, frame_size,
+				     rc[1].rix, rc[1].tries,
+				     rc[2].rix, rc[2].tries,
+				     rc[3].rix, rc[3].tries,
+				     0, 0,
+				     short_tries, long_tries,
+				     nframes, nbad);
+			long_tries -= rc[1].tries;
+		}
+
+		if (rc[2].tries && finalTSIdx > 1) {
+			update_stats(vap, ni, frame_size,
+				     rc[2].rix, rc[2].tries,
+				     rc[3].rix, rc[3].tries,
+				     0, 0,
+				     0, 0,
+				     short_tries, long_tries,
+				     nframes, nbad);
+			long_tries -= rc[2].tries;
+		}
+
+		if (rc[3].tries && finalTSIdx > 2) {
+			update_stats(vap, ni, frame_size,
+				     rc[3].rix, rc[3].tries,
+				     0, 0,
+				     0, 0,
+				     0, 0,
+				     short_tries, long_tries,
+				     nframes, nbad);
+		}
+	}
 }
 
 static void
 sample_tx_update(const struct ieee80211vap *vap, const struct ieee80211_node *ni,
     void *arg1, void *arg2, void *arg3)
 {
+	/* nothing here. */
 }
 
 static void

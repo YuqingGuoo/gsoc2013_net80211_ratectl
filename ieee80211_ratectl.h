@@ -23,7 +23,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 255101 2013-07-24 09:48:56Z ccqin $
+ * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 255872 2013-08-13 09:28:00Z ccqin $
  */
 #ifndef _NET80211_IEEE80211_RATECTL_H_
 #define _NET80211_IEEE80211_RATECTL_H_
@@ -83,6 +83,24 @@ struct ieee80211_rc_series {
 	uint16_t max4msframelen;
 };
 
+/*  */
+struct ieee80211_rc_info {
+	struct ieee80211_rc_series ri_rc[IEEE80211_RATECTL_NUM];
+	int ri_framelen;
+	int ri_shortPreamble;
+
+	/* TX info */
+	int ri_success;		/* TX success or not */
+	int ri_okcnt;		/* TX ok with or without retry */
+	int ri_failcnt;		/* TX retry-fail count */
+	int ri_txcnt;		/* TX count */
+	int ri_retrycnt;	/* TX retry count */
+	int ri_shortretry;
+	int ri_longretry;
+	int ri_finaltsi;
+	int ri_txrate;		/* hw tx rate */
+};
+
 struct ieee80211_ratectl {
 	const char *ir_name;
 	uint32_t ir_capabilities;		/* hardware capabilities offered to rc */
@@ -94,8 +112,7 @@ struct ieee80211_ratectl {
 	void	(*ir_node_init)(struct ieee80211_node *);
 	void	(*ir_node_deinit)(struct ieee80211_node *);
 	int	(*ir_rate)(struct ieee80211_node *, void *, uint32_t);
-	void	(*ir_rates)(struct ieee80211_node *, struct ieee80211_rc_series *, 
-					  int, size_t);
+	void	(*ir_rates)(struct ieee80211_node *, struct ieee80211_rc_info *);
 	void	(*ir_tx_complete)(const struct ieee80211vap *,
 	    			  const struct ieee80211_node *, int,
 	    			  void *, void *);
@@ -110,7 +127,7 @@ void	ieee80211_ratectl_unregister(int);
 void	ieee80211_ratectl_init(struct ieee80211vap *, uint32_t);
 void	ieee80211_ratectl_set(struct ieee80211vap *, int);
 void	ieee80211_ratectl_complete_rcflags(const struct ieee80211_node *, 
-		struct ieee80211_rc_series *, int)
+		struct ieee80211_rc_info*)
 
 MALLOC_DECLARE(M_80211_RATECTL);
 
@@ -145,14 +162,12 @@ ieee80211_ratectl_rate(struct ieee80211_node *ni, void *arg, uint32_t iarg)
 }
 
 static void __inline
-ieee80211_ratectl_rates(struct ieee80211_node *ni, struct ieee80211_rc_series *rc,
-		int shortPreamble, size_t frameLen)
+ieee80211_ratectl_rates(struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 {
 	const struct ieee80211vap *vap = ni->ni_vap;
 
-	vap->iv_rate->ir_rates(ni, rc, shortPreamble, frameLen);
-	
-	ieee80211_ratectl_complete_rcflags(ni, rc, shortPreamble);
+	vap->iv_rate->ir_rates(ni, rc_info);
+	ieee80211_ratectl_complete_rcflags(ni, rc_info);
 }
 
 static void __inline

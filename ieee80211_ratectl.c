@@ -25,7 +25,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 255101 2013-07-24 09:48:56Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 255872 2013-08-13 09:28:00Z ccqin $");
 
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -122,11 +122,13 @@ ieee80211_ratectl_set(struct ieee80211vap *vap, int type)
 
 void
 ieee80211_ratectl_complete_rcflags(const struct ieee80211_node *ni,
-		struct ieee80211_rc_series *rc, int shortPreamble)
+		struct ieee80211_rc_info *rc_info)
 {
 	const struct ieee80211com *ic = ni->ni_ic;
 	const struct ieee80211vap *vap = ni->ni_vap;
 	const struct ieee80211_rate_table * rt = ic->ic_rt;
+	struct ieee80211_rc_series *rc = rc_info->ri_rc;
+	int shortPreamble = rc_info->ri_shortPreamble;
 	uint8_t rate;
 	int i;
 
