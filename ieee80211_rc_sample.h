@@ -1,6 +1,7 @@
 /* $FreeBSD: head/sys/dev/ath/ath_rate/sample/sample.h 240382 2012-08-15 07:10:10Z adrian $*/
 
 /*-
+ * Copyright (c) 2005 John Bicket
  * Copyright (c) 2013 Chenchong Qin <ccqin@FreeBSD.org>
  * All rights reserved.
  *
@@ -38,6 +39,8 @@
 
 #ifndef _NET80211_IEEE80211_RATECTL_SAMPLE_H_
 #define _NET80211_IEEE80211_RATECTL_SAMPLE_H_
+
+#include <net80211/ieee80211_ratectl.h>
 
 /*
  * for now, we track performance for three different packet
@@ -82,6 +85,7 @@ struct txschedule {
  */
 /* XXX change naming conversion? */
 struct ieee80211_sample_node {
+	struct ieee80211_ratectl_node san_node;	/* common state */
 	struct ieee80211_sample *san_sample;/* backpointer */
 	int static_rix;			/* rate index of fixed tx rate */
 	uint64_t ratemask;		/* bit mask of valid rate indices */

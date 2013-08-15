@@ -24,7 +24,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl_none.c 215287 2010-11-13 14:59:54Z bschmidt $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl_none.c 255970 2013-08-15 10:18:36Z ccqin $");
 
 #include "opt_wlan.h"
 
@@ -57,7 +57,7 @@ none_deinit(struct ieee80211vap *vap)
 }
 
 static void
-none_node_init(struct ieee80211_node *ni)
+none_node_init(struct ieee80211_node *ni, uint32_t capabilities)
 {
 	ni->ni_txrate = ni->ni_rates.rs_rates[0] & IEEE80211_RATE_VAL;
 }

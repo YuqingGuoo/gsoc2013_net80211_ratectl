@@ -23,7 +23,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 255872 2013-08-13 09:28:00Z ccqin $
+ * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 255970 2013-08-15 10:18:36Z ccqin $
  */
 #ifndef _NET80211_IEEE80211_RATECTL_H_
 #define _NET80211_IEEE80211_RATECTL_H_
@@ -37,13 +37,6 @@ enum ieee80211_ratealgs {
 	IEEE80211_RATECTL_MAX
 };
 
-enum {
-	MCS_HT20,
-	MCS_HT20_SGI,
-	MCS_HT40,
-	MCS_HT40_SGI,
-};
-
 #define	IEEE80211_RATECTL_TX_SUCCESS	1
 #define	IEEE80211_RATECTL_TX_FAILURE	0
 
@@ -52,25 +45,30 @@ enum {
 
 #define	IEEE80211_RATECTL_NUM		4
 
-#define	IEEE80211_RATECTL_DS_FLAG		0x01	/* dual-stream rate */
-#define	IEEE80211_RATECTL_CW40_FLAG		0x02	/* use HT40 */
-#define	IEEE80211_RATECTL_SGI_FLAG		0x04	/* use short-GI */
-#define	IEEE80211_RATECTL_HT_FLAG		0x08	/* use HT */
-#define	IEEE80211_RATECTL_RTSCTS_FLAG	0x10	/* enable RTS/CTS protection */
-#define	IEEE80211_RATECTL_STBC_FLAG		0x20	/* enable STBC */
-#define	IEEE80211_RATECTL_TS_FLAG		0x40	/* triple-stream rate */
+#define	IEEE80211_RATECTL_FLAG_DS		0x01	/* dual-stream rate */
+#define	IEEE80211_RATECTL_FLAG_CW40		0x02	/* use HT40 */
+#define	IEEE80211_RATECTL_FLAG_SGI		0x04	/* use short-GI */
+#define	IEEE80211_RATECTL_FLAG_HT		0x08	/* use HT */
+#define	IEEE80211_RATECTL_FLAG_RTSCTS	0x10	/* enable RTS/CTS protection */
+#define	IEEE80211_RATECTL_FLAG_STBC		0x20	/* enable STBC */
+#define	IEEE80211_RATECTL_FLAG_TS		0x40	/* triple-stream rate */
 
-/* Hardware CAPs chip offered to rate control code */
+/* Hardware CAPs offered to rate control algo */
 #define	IEEE80211_RATECTL_CAP_MRR			0x01	/* support MRR */
 #define	IEEE80211_RATECTL_CAP_MRRPROT		0x02	/* support MRR + protect */
 #define	IEEE80211_RATECTL_CAP_MULTXCHAIN	0x04	/* has more than 1 txchain */
 
 #define IS_VAP_HT(vap)	((vap)->iv_htcaps & IEEE80211_HTC_HT)
-
 #define IS_HT_RATE(_rate)   ((_rate) & 0x80)
 #define HT_RC_2_MCS(_rc)    ((_rc) & 0x7f)
 #define HT_RC_2_STREAMS(_rc)    ((((_rc) & 0x78) >> 3) + 1)
 
+enum {
+	MCS_HT20,
+	MCS_HT20_SGI,
+	MCS_HT40,
+	MCS_HT40_SGI,
+};
 
 extern int max_4ms_framelen[4][32];
 
@@ -83,7 +81,7 @@ struct ieee80211_rc_series {
 	uint16_t max4msframelen;
 };
 
-/*  */
+/* net80211 rate control infomation */
 struct ieee80211_rc_info {
 	struct ieee80211_rc_series ri_rc[IEEE80211_RATECTL_NUM];
 	int ri_framelen;
@@ -103,13 +101,11 @@ struct ieee80211_rc_info {
 
 struct ieee80211_ratectl {
 	const char *ir_name;
-	uint32_t ir_capabilities;		/* hardware capabilities offered to rc */
-
 	int	(*ir_attach)(const struct ieee80211vap *);
 	void	(*ir_detach)(const struct ieee80211vap *);
 	void	(*ir_init)(struct ieee80211vap *);
 	void	(*ir_deinit)(struct ieee80211vap *);
-	void	(*ir_node_init)(struct ieee80211_node *);
+	void	(*ir_node_init)(struct ieee80211_node *, uint32_t);
 	void	(*ir_node_deinit)(struct ieee80211_node *);
 	int	(*ir_rate)(struct ieee80211_node *, void *, uint32_t);
 	void	(*ir_rates)(struct ieee80211_node *, struct ieee80211_rc_info *);
@@ -122,12 +118,27 @@ struct ieee80211_ratectl {
 	void	(*ir_setinterval)(const struct ieee80211vap *, int);
 };
 
+/* per ratectl node must start with this common state */
+struct ieee80211_ratectl_node {
+	uint32_t irn_capabilities;		/* hardware capabilities offered to rc */
+};
+
+#define IEEE80211_RATECTL_NODE(_ni) \
+	((struct ieee80211_ratectl_node *)((_ni)->ni_rctls))
+
+#define	IEEE80211_RATECTL_HASCAP_MRR(_ni) \
+	(IEEE80211_RATECTL_NODE(_ni)->irn_capabilities & IEEE80211_RATECTL_CAP_MRR)
+#define	IEEE80211_RATECTL_HASCAP_MRRPROT(_ni) \
+	(IEEE80211_RATECTL_NODE(_ni)->irn_capabilities & IEEE80211_RATECTL_CAP_MRRPROT)
+#define	IEEE80211_RATECTL_HASCAP_MULTXCHAIN(_ni) \
+	(IEEE80211_RATECTL_NODE(_ni)->irn_capabilities & IEEE80211_RATECTL_CAP_MULTXCHAIN)
+
 void	ieee80211_ratectl_register(int, const struct ieee80211_ratectl *);
 void	ieee80211_ratectl_unregister(int);
-void	ieee80211_ratectl_init(struct ieee80211vap *, uint32_t);
+void	ieee80211_ratectl_init(struct ieee80211vap *);
 void	ieee80211_ratectl_set(struct ieee80211vap *, int);
-void	ieee80211_ratectl_complete_rcflags(const struct ieee80211_node *, 
-		struct ieee80211_rc_info*)
+void	ieee80211_ratectl_complete_rcflags(struct ieee80211_node *, 
+		struct ieee80211_rc_info*);
 
 MALLOC_DECLARE(M_80211_RATECTL);
 
@@ -138,11 +149,11 @@ ieee80211_ratectl_deinit(struct ieee80211vap *vap)
 }
 
 static void __inline
-ieee80211_ratectl_node_init(struct ieee80211_node *ni)
+ieee80211_ratectl_node_init(struct ieee80211_node *ni, uint32_t capabilities)
 {
 	const struct ieee80211vap *vap = ni->ni_vap;
 
-	vap->iv_rate->ir_node_init(ni);
+	vap->iv_rate->ir_node_init(ni, capabilities);
 }
 
 static void __inline
@@ -205,18 +216,19 @@ static int __inline
 ieee80211_ratectl_hascap_shortgi(const struct ieee80211vap *vap,
 		const struct ieee80211_node *ni)
 {
-	if (! IS_VAP_HT(vap))
-		return IEEE80211_RATECTL_FALSE;
+	if (IS_VAP_HT(vap))
+	{
+		if (ni->ni_chw == 40 &&
+				vap->iv_htcaps & IEEE80211_HTCAP_SHORTGI40 &&
+				ni->ni_htcap & IEEE80211_HTCAP_SHORTGI40)
+			return IEEE80211_RATECTL_TRUE;
 
-	if (ni->ni_chw == 40 &&
-			vap->iv_htcaps & IEEE80211_HTCAP_SHORTGI40 &&
-			ni->ni_htcap & IEEE80211_HTCAP_SHORTGI40)
-		return IEEE80211_RATECTL_TRUE;
-
-	if (ni->ni_chw == 20 &&
-			vap->iv_htcaps & IEEE80211_HTCAP_SHORTGI20 &&
-			ni->ni_htcap & IEEE80211_HTCAP_SHORTGI20)
-		return IEEE80211_RATECTL_TRUE;
+		if (ni->ni_chw == 20 &&
+				vap->iv_htcaps & IEEE80211_HTCAP_SHORTGI20 &&
+				ni->ni_htcap & IEEE80211_HTCAP_SHORTGI20)
+			return IEEE80211_RATECTL_TRUE;
+	}
+	return IEEE80211_RATECTL_FALSE;
 }
 
 
@@ -226,7 +238,25 @@ ieee80211_ratectl_hascap_stbc(const struct ieee80211vap *vap,
 {
    return IS_VAP_HT(vap) && (vap->iv_htcaps & IEEE80211_HTCAP_TXSTBC) &&
 			    (ni->ni_htcap & IEEE80211_HTCAP_RXSTBC_1STREAM) &&
-			    (vap->iv_rate->ir_capabilities & IEEE80211_RATECTL_CAP_MULTXCHAIN);
+			    IEEE80211_RATECTL_HASCAP_MULTXCHAIN(ni);
+}
+
+static int __inline
+ieee80211_ratectl_node_is11n(const struct ieee80211_node *ni)
+{
+	if (ni->ni_chan == NULL)
+		return (0);
+	if (ni->ni_chan == IEEE80211_CHAN_ANYC)
+		return (0);
+	return (IEEE80211_IS_CHAN_HT(ni->ni_chan));
+}
+
+__inline static const struct ieee80211_rateset *
+ieee80211_ratectl_get_rateset(const struct ieee80211_node *ni)
+{
+	return ieee80211_ratectl_node_is11n(ni) ? 
+				(struct ieee80211_rateset *) &ni->ni_htrates :
+				&ni->ni_rates;
 }
 
 #endif

@@ -25,7 +25,7 @@
 
 #include <sys/cdefs.h>
 #ifdef __FreeBSD__
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_sta.c 245256 2012-12-09 22:56:29Z adrian $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_sta.c 255966 2013-08-15 08:00:01Z ccqin $");
 #endif
 
 /*
@@ -1636,7 +1636,8 @@ sta_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0,
 			     IEEE80211_F_JOIN | IEEE80211_F_DOBRS);
 			ieee80211_setup_basic_htrates(ni, htinfo);
 			ieee80211_node_setuptxparms(ni);
-			ieee80211_ratectl_node_init(ni);
+			/* XXX TODO fill the cap field */
+			ieee80211_ratectl_node_init(ni, 0);
 		} else {
 #ifdef IEEE80211_SUPPORT_SUPERG
 			if (IEEE80211_ATH_CAP(vap, ni, IEEE80211_NODE_ATH))

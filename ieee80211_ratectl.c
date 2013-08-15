@@ -25,7 +25,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 255872 2013-08-13 09:28:00Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 255970 2013-08-15 10:18:36Z ccqin $");
 
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -94,11 +94,10 @@ ieee80211_ratectl_unregister(int type)
 }
 
 void
-ieee80211_ratectl_init(struct ieee80211vap *vap, uint32_t capabilities)
+ieee80211_ratectl_init(struct ieee80211vap *vap)
 {
 	if (vap->iv_rate == ratectls[IEEE80211_RATECTL_NONE])
 		ieee80211_ratectl_set(vap, IEEE80211_RATECTL_AMRR);
-	vap->iv_rate.ir_capabilities = capabilities;
 	vap->iv_rate->ir_init(vap);
 }
 
@@ -121,28 +120,28 @@ ieee80211_ratectl_set(struct ieee80211vap *vap, int type)
 }
 
 void
-ieee80211_ratectl_complete_rcflags(const struct ieee80211_node *ni,
+ieee80211_ratectl_complete_rcflags(struct ieee80211_node *ni,
 		struct ieee80211_rc_info *rc_info)
 {
-	const struct ieee80211com *ic = ni->ni_ic;
-	const struct ieee80211vap *vap = ni->ni_vap;
-	const struct ieee80211_rate_table * rt = ic->ic_rt;
+	const struct ieee80211_rate_table * rt = NULL;
 	struct ieee80211_rc_series *rc = rc_info->ri_rc;
-	int shortPreamble = rc_info->ri_shortPreamble;
+	/* int shortPreamble = rc_info->ri_shortPreamble; */
 	uint8_t rate;
 	int i;
+
+	rt = ieee80211_get_ratetable(ni->ni_ic->ic_curchan);
 
 	/* Make sure that rate control code doesn't mess it up.
 	 * If enable rts/cts and is pre-802.11n, blank tries 1, 2, 3 
 	 */
 
-	if (! (vap->iv_rate->ir_capabilities & IEEE80211_RATECTL_CAP_MRRPROT))
+	if (! IEEE80211_RATECTL_HASCAP_MRRPROT(ni))
 	{
 		for (i = 1; i < IEEE80211_RATECTL_NUM; i++)
 		{
-			if (rc[0].flags & IEEE80211_RATECTL_RTSCTS_FLAG)
+			if (rc[0].flags & IEEE80211_RATECTL_FLAG_RTSCTS)
 				rc[i].tries = 0;
-			rc[i].flags &= ~IEEE80211_RATECTL_RTSCTS_FLAG; 
+			rc[i].flags &= ~IEEE80211_RATECTL_FLAG_RTSCTS; 
 		}
 	}
 
@@ -151,13 +150,18 @@ ieee80211_ratectl_complete_rcflags(const struct ieee80211_node *ni,
 		if (rc[i].tries == 0)
 			continue;
 
-		rate = rt->info[rc[i].rix].rateCode;
+		rate = rt->info[rc[i].rix].dot11Rate;
 
 		/*
 		 * Only enable short preamble for legacy rates
 		 */
+
+		/* XXX how we get the non_ht ratecode here? */
+
+		#if 0
 		if ((! IS_HT_RATE(rate)) && shortPreamble)
 			rate |= rt->info[rc[i].rix].shortPreamble;
+		#endif
 
 		/*
 		 * Save this, used by the TX and completion code
@@ -166,7 +170,7 @@ ieee80211_ratectl_complete_rcflags(const struct ieee80211_node *ni,
 
 		/* Only enable shortgi, 2040, dual-stream if HT is set */
 		if (IS_HT_RATE(rate)) {
-			rc[i].flags |= IEEE80211_RATECTL_HT_FLAG;
+			rc[i].flags |= IEEE80211_RATECTL_FLAG_HT;
 
 			/*
 			 * XXX TODO: LDPC
@@ -176,9 +180,9 @@ ieee80211_ratectl_complete_rcflags(const struct ieee80211_node *ni,
 			 * Dual / Triple stream rate?
 			 */
 			if (HT_RC_2_STREAMS(rate) == 2)
-				rc[i].flags |= IEEE80211_RATECTL_DS_FLAG;
+				rc[i].flags |= IEEE80211_RATECTL_FLAG_DS;
 			else if (HT_RC_2_STREAMS(rate) == 3)
-				rc[i].flags |= IEEE80211_RATECTL_TS_FLAG;
+				rc[i].flags |= IEEE80211_RATECTL_FLAG_TS;
 		}
 
 		/*
@@ -192,16 +196,16 @@ ieee80211_ratectl_complete_rcflags(const struct ieee80211_node *ni,
 		 * Calculate the maximum 4ms frame length based
 		 * on the MCS rate, SGI and channel width flags.
 		 */
-		if ((rc[i].flags & IEEE80211_RATECTL_HT_FLAG) &&
+		if ((rc[i].flags & IEEE80211_RATECTL_FLAG_HT) &&
 		    (HT_RC_2_MCS(rate) < 32)) {
 			int j;
-			if (rc[i].flags & IEEE80211_RATECTL_CW40_FLAG) {
-				if (rc[i].flags & IEEE80211_RATECTL_SGI_FLAG)
+			if (rc[i].flags & IEEE80211_RATECTL_FLAG_CW40) {
+				if (rc[i].flags & IEEE80211_RATECTL_FLAG_SGI)
 					j = MCS_HT40_SGI;
 				else
 					j = MCS_HT40;
 			} else {
-				if (rc[i].flags & IEEE80211_RATECTL_SGI_FLAG)
+				if (rc[i].flags & IEEE80211_RATECTL_FLAG_SGI)
 					j = MCS_HT20_SGI;
 				else
 					j = MCS_HT20;

@@ -1,6 +1,7 @@
 /* $FreeBSD: head/sys/dev/ath/ath_rate/sample/sample.c 248573 2013-02-27 04:33:06Z adrian $*/
 
 /*-
+ * Copyright (c) 2005 John Bicket
  * Copyright (c) 2013 Chenchong Qin <ccqin@FreeBSD.org>
  * All rights reserved.
  *
@@ -110,18 +111,6 @@ sample_deinit(struct ieee80211vap *vap)
 	free(vap->iv_rs, M_80211_RATECTL);
 }
 
-// XXX should be shared by ratectl algos
-static int
-sample_node_is_11n(struct ieee80211_node *ni)
-{
-
-	if (ni->ni_chan == NULL)
-		return (0);
-	if (ni->ni_chan == IEEE80211_CHAN_ANYC)
-		return (0);
-	return (IEEE80211_IS_CHAN_HT(ni->ni_chan));
-}
-
 static const struct txschedule *mrr_schedules[IEEE80211_MODE_MAX+2] = {
 	NULL,		/* IEEE80211_MODE_AUTO */
 	series_11a,	/* IEEE80211_MODE_11A */
@@ -138,7 +127,7 @@ static const struct txschedule *mrr_schedules[IEEE80211_MODE_MAX+2] = {
 };
 
 static void
-sample_node_init(struct ieee80211_node *ni)
+sample_node_init(struct ieee80211_node *ni, uint32_t capabilities)
 {
 #define	RATE(_ix)	(ni->ni_rates.rs_rates[(_ix)] & IEEE80211_RATE_VAL)
 #define	DOT11RATE(_ix)	(rt->info[(_ix)].dot11Rate & IEEE80211_RATE_VAL)
@@ -160,6 +149,10 @@ sample_node_init(struct ieee80211_node *ni)
 		}
 	} else
 		san = ni->ni_rctls;
+
+	struct ieee80211_ratectl_node *irn = IEEE80211_RATECTL_NODE(ni);
+	irn->irn_capabilities = capabilities;
+	
 	san->san_sample = sample;
 
 	KASSERT(rt != NULL, ("no rate table, mode %u", curmode));
@@ -586,24 +579,6 @@ sample_pick_seed_rate_ht(const struct ieee80211_node *ni, int frameLen)
 #undef MCS
 }
 
-static const struct ieee80211_rateset *
-sample_get_rateset(const struct ieee80211_node *ni)
-{
-	const struct ieee80211_rateset *rs = NULL;
-	/* 11n or not? Pick the right rateset */
-	if (sample_node_is_11n(ni)) {
-		/* XXX ew */
-		IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
-		    "%s: 11n node", __func__);
-		rs = (struct ieee80211_rateset *) &ni->ni_htrates;
-	} else {
-		IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
-		    "%s: non-11n node", __func__);
-		rs = &ni->ni_rates;
-	}
-	return rs;
-}
-
 static int
 sample_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unused)
 {
@@ -628,9 +603,9 @@ sample_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unuse
 		goto done;
 	}
 
-	if (vap->iv_rate->ir_capabilities & IEEE80211_RATECTL_CAP_MRR)
+	if (IEEE80211_RATECTL_HASCAP_MRR(ni))
 		mrr = 1;
-	if (!(vap->iv_rate->ir_capabilities & IEEE80211_RATECTL_CAP_MRRPROT))
+	if (! IEEE80211_RATECTL_HASCAP_MRRPROT(ni))
 		mrr = 0;
 
 	best_rix = pick_best_rate(ni, rt, size_bin, !mrr);
@@ -942,12 +917,12 @@ sample_tx_complete(const struct ieee80211vap *vap,
 		return;
 	}
 	
-	if (vap->iv_rate->ir_capabilities & IEEE80211_RATECTL_CAP_MRR)
+	if (IEEE80211_RATECTL_HASCAP_MRR(ni))
 		mrr = 1;
 	/* XXX check HT protmode too */
-	if (mrr && !(vap->iv_rate->ir_capabilities & IEEE80211_RATECTL_CAP_MRRPROT))
+	if (mrr && !IEEE80211_RATECTL_HASCAP_MRRPROT(ni))
 		mrr = 0;
-
+	
 	if (!mrr || rc_info->ri_finaltsi == 0) {
 		if (!IS_RATE_DEFINED(san, final_rix)) {
 			return;

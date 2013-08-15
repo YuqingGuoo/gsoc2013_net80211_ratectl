@@ -1,4 +1,4 @@
-/* $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.h 206401 2010-04-07 15:29:13Z rpaulo $ */
+/* $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.h 255966 2013-08-15 08:00:01Z ccqin $ */
 /*	$OpenBSD: ieee80211_amrr.h,v 1.3 2006/06/17 19:34:31 damien Exp $	*/
 
 /*-
@@ -20,6 +20,7 @@
 #ifndef _NET80211_IEEE80211_AMRR_H_
 #define _NET80211_IEEE80211_AMRR_H_
 
+#include <net80211/ieee80211_ratectl.h>
 /*-
  * Naive implementation of the Adaptive Multi Rate Retry algorithm:
  *
@@ -47,6 +48,7 @@ struct ieee80211_amrr {
  * Rate control state for a given node.
  */
 struct ieee80211_amrr_node {
+	struct ieee80211_ratectl_node amn_node;
 	struct ieee80211_amrr *amn_amrr;/* backpointer */
 	int	amn_rix;		/* current rate index */
 	int	amn_ticks;		/* time of last update */
