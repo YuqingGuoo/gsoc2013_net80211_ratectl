@@ -23,7 +23,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 256474 2013-08-25 09:37:15Z ccqin $
+ * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 256475 2013-08-25 09:58:29Z ccqin $
  */
 #ifndef _NET80211_IEEE80211_RATECTL_H_
 #define _NET80211_IEEE80211_RATECTL_H_
@@ -99,7 +99,7 @@ struct ieee80211_rc_stat {
 
 	/* ratectl statistics */
 	uint32_t irs_txcnt;
-	uint32_t irs_failcnt
+	uint32_t irs_failcnt;
 	uint32_t irs_retrycnt;
 	uint32_t irs_shortretry;
 	uint32_t irs_longretry;
@@ -261,7 +261,7 @@ ieee80211_ratectl_get_rateset(const struct ieee80211_node *ni)
 }
 
 static void __inline
-ieee80211_ratectl_update_stat(struct ieee80211vap *vap,
+ieee80211_ratectl_update_stat(const struct ieee80211vap *vap,
 		const struct ieee80211_rc_info *rc_info)
 {
 	struct ieee80211_rc_stat * irs = IEEE80211_RATECTL_STAT(vap);

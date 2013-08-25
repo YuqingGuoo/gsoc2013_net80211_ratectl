@@ -24,7 +24,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl_none.c 255970 2013-08-15 10:18:36Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl_none.c 256491 2013-08-25 10:34:29Z ccqin $");
 
 #include "opt_wlan.h"
 
@@ -44,10 +44,26 @@ __FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl_none.c 255
 
 #include <net80211/ieee80211_var.h>
 #include <net80211/ieee80211_ratectl.h>
+#include <net80211/ieee80211_ratectl_none.h>
 
 static void
-none_init(struct ieee80211vap *vap)
+none_init(struct ieee80211vap *vap, uint32_t capabilities)
 {
+	struct ieee80211_node *none;
+
+	KASSERT(vap->iv_rs == NULL, ("%s called multiple times", __func__));
+
+	none = vap->iv_rs = malloc(sizeof(struct ieee80211_none),
+	    M_80211_RATECTL, M_NOWAIT|M_ZERO);
+	if (none == NULL) {
+		if_printf(vap->iv_ifp, "couldn't alloc ratectl structure\n");
+		return;
+	}
+
+	struct ieee80211_rc_stat * irs = IEEE80211_RATECTL_STAT(vap);
+	irs->irs_capabilities = capabilities;
+
+	/* ... */
 }
 
 static void
@@ -57,8 +73,27 @@ none_deinit(struct ieee80211vap *vap)
 }
 
 static void
-none_node_init(struct ieee80211_node *ni, uint32_t capabilities)
+none_node_init(struct ieee80211_node *ni)
 {
+	struct ieee80211vap *vap = ni->ni_vap;
+	struct ieee80211_none *none = vap->iv_rs;
+	struct ieee80211_none_node *non;
+
+	if (ni->ni_rctls == NULL) {
+		ni->ni_rctls = non = malloc(sizeof(struct ieee80211_none_node),
+		    M_80211_RATECTL, M_NOWAIT|M_ZERO);
+		if (non == NULL) {
+			if_printf(vap->iv_ifp, "couldn't alloc per-node ratectl "
+			    "structure\n");
+			return;
+		}
+	} else
+		non = ni->ni_rctls;
+
+	non->non_none = none;
+
+	/* ... */
+	
 	ni->ni_txrate = ni->ni_rates.rs_rates[0] & IEEE80211_RATE_VAL;
 }
 

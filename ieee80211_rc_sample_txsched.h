@@ -37,8 +37,8 @@
  * THE POSSIBILITY OF SUCH DAMAGES.
  *
  */
-#ifndef	__ATH_RATE_SAMPLE_TXSCHEDULES_H__
-#define	__ATH_RATE_SAMPLE_TXSCHEDULES_H__
+#ifndef	_NET80211_IEEE80211_RATECTL_SAMPLE_TXSCHEDULES_H_
+#define	_NET80211_IEEE80211_RATECTL_SAMPLE_TXSCHEDULES_H_
 
 #include <sys/cdefs.h>
 
@@ -238,4 +238,4 @@ static const struct txschedule series_quarter[] = {
 };
 #undef Q
 
-#endif
+#endif /* _NET80211_IEEE80211_RATECTL_SAMPLE_TXSCHEDULES_H_ */
