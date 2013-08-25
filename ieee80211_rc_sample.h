@@ -53,6 +53,7 @@
  * Rate control settings.
  */
 struct ieee80211_sample {
+	struct ieee80211_rc_stat sample_stat;
 	int	sample_smoothing_rate;			/* ewma percentage [0..99] */
 	int	sample_smoothing_minpackets;
 	int	sample_rate;			/* %time to try different tx rates */
@@ -85,7 +86,6 @@ struct txschedule {
  */
 /* XXX change naming conversion? */
 struct ieee80211_sample_node {
-	struct ieee80211_ratectl_node san_node;	/* common state */
 	struct ieee80211_sample *san_sample;/* backpointer */
 	int static_rix;			/* rate index of fixed tx rate */
 	uint64_t ratemask;		/* bit mask of valid rate indices */

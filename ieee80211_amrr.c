@@ -19,7 +19,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 255970 2013-08-15 10:18:36Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 256474 2013-08-25 09:37:15Z ccqin $");
 
 /*-
  * Naive implementation of the Adaptive Multi Rate Retry algorithm:
@@ -58,9 +58,9 @@ __FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 255970 2013
 	((amn)->amn_txcnt > 10)
 
 static void	amrr_setinterval(const struct ieee80211vap *, int);
-static void	amrr_init(struct ieee80211vap *);
+static void	amrr_init(struct ieee80211vap *, uint32_t);
 static void	amrr_deinit(struct ieee80211vap *);
-static void	amrr_node_init(struct ieee80211_node *, uint32_t);
+static void	amrr_node_init(struct ieee80211_node *);
 static void	amrr_node_deinit(struct ieee80211_node *);
 static int	amrr_update(struct ieee80211_amrr *,
     			struct ieee80211_amrr_node *, struct ieee80211_node *);
@@ -105,7 +105,7 @@ amrr_setinterval(const struct ieee80211vap *vap, int msecs)
 }
 
 static void
-amrr_init(struct ieee80211vap *vap)
+amrr_init(struct ieee80211vap *vap, uint32_t capabilities)
 {
 	struct ieee80211_amrr *amrr;
 
@@ -117,6 +117,10 @@ amrr_init(struct ieee80211vap *vap)
 		if_printf(vap->iv_ifp, "couldn't alloc ratectl structure\n");
 		return;
 	}
+
+	struct ieee80211_rc_stat * irs = IEEE80211_RATECTL_STAT(vap);
+	irs->irs_capabilities = capabilities;
+
 	amrr->amrr_min_success_threshold = IEEE80211_AMRR_MIN_SUCCESS_THRESHOLD;
 	amrr->amrr_max_success_threshold = IEEE80211_AMRR_MAX_SUCCESS_THRESHOLD;
 	amrr_setinterval(vap, 500 /* ms */);
@@ -130,7 +134,7 @@ amrr_deinit(struct ieee80211vap *vap)
 }
 
 static void
-amrr_node_init(struct ieee80211_node *ni, uint32_t capabilities)
+amrr_node_init(struct ieee80211_node *ni)
 {
 	const struct ieee80211_rateset *rs = NULL;
 	struct ieee80211vap *vap = ni->ni_vap;
@@ -149,9 +153,6 @@ amrr_node_init(struct ieee80211_node *ni, uint32_t capabilities)
 	} else
 		amn = ni->ni_rctls;
 
-	struct ieee80211_ratectl_node *irn = IEEE80211_RATECTL_NODE(ni);
-	irn->irn_capabilities = capabilities;
-	
 	amn->amn_amrr = amrr;
 	amn->amn_success = 0;
 	amn->amn_recovery = 0;
@@ -310,10 +311,16 @@ amrr_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unused)
 static void
 amrr_tx_complete(const struct ieee80211vap *vap,
     const struct ieee80211_node *ni, int ok,
-    void *arg1, void *arg2 __unused)
+    void *arg1, void *arg2)
 {
 	struct ieee80211_amrr_node *amn = ni->ni_rctls;
 	int retries = *(int *)arg1;
+
+	/* XXX need to change arg2 to pointer of ieee80211_rc_info */
+	struct ieee80211_rc_info *rc_info = (struct ieee80211_rc_info*)arg2;
+
+	/* update per vap statistics */
+	ieee80211_ratectl_update_stat(vap, rc_info);
 
 	amn->amn_txcnt++;
 	if (ok)

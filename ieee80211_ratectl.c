@@ -25,7 +25,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 255970 2013-08-15 10:18:36Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 256474 2013-08-25 09:37:15Z ccqin $");
 
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -49,6 +49,13 @@ static const char *ratectl_modnames[IEEE80211_RATECTL_MAX] = {
 };
 
 MALLOC_DEFINE(M_80211_RATECTL, "80211ratectl", "802.11 rate control");
+
+enum {
+	MCS_HT20,
+	MCS_HT20_SGI,
+	MCS_HT40,
+	MCS_HT40_SGI,
+};
 
 int max_4ms_framelen[4][32] = {
 	[MCS_HT20] = {
@@ -94,11 +101,11 @@ ieee80211_ratectl_unregister(int type)
 }
 
 void
-ieee80211_ratectl_init(struct ieee80211vap *vap)
+ieee80211_ratectl_init(struct ieee80211vap *vap, uint32_t capabilities)
 {
 	if (vap->iv_rate == ratectls[IEEE80211_RATECTL_NONE])
 		ieee80211_ratectl_set(vap, IEEE80211_RATECTL_AMRR);
-	vap->iv_rate->ir_init(vap);
+	vap->iv_rate->ir_init(vap, capabilities);
 }
 
 void
@@ -123,8 +130,9 @@ void
 ieee80211_ratectl_complete_rcflags(struct ieee80211_node *ni,
 		struct ieee80211_rc_info *rc_info)
 {
+	struct ieee80211vap *vap = ni->ni_vap;
 	const struct ieee80211_rate_table * rt = NULL;
-	struct ieee80211_rc_series *rc = rc_info->ri_rc;
+	struct ieee80211_rc_series *rc = rc_info->iri_rc;
 	/* int shortPreamble = rc_info->ri_shortPreamble; */
 	uint8_t rate;
 	int i;
@@ -135,7 +143,7 @@ ieee80211_ratectl_complete_rcflags(struct ieee80211_node *ni,
 	 * If enable rts/cts and is pre-802.11n, blank tries 1, 2, 3 
 	 */
 
-	if (! IEEE80211_RATECTL_HASCAP_MRRPROT(ni))
+	if (! IEEE80211_RATECTL_HASCAP_MRRPROT(vap))
 	{
 		for (i = 1; i < IEEE80211_RATECTL_NUM; i++)
 		{

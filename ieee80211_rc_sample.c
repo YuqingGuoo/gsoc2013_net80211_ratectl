@@ -50,7 +50,7 @@
 #include <net80211/ieee80211_rc_sample.h>
 #include <net80211/ieee80211_rc_sample_txsched.h>
 
-static void	sample_init(struct ieee80211vap *);
+static void	sample_init(struct ieee80211vap *, uint32_t);
 static void	sample_deinit(struct ieee80211vap *);
 static void	sample_node_init(struct ieee80211_node *);
 static void	sample_node_deinit(struct ieee80211_node *);
@@ -83,7 +83,7 @@ IEEE80211_RATECTL_MODULE(sample, 1);
 IEEE80211_RATECTL_ALG(sample, IEEE80211_RATECTL_SAMPLE, sample);
 
 static void
-sample_init(struct ieee80211vap *vap)
+sample_init(struct ieee80211vap *vap, uint32_t capabilities)
 {
 	struct ieee80211_sample *sample;
 
@@ -95,6 +95,10 @@ sample_init(struct ieee80211vap *vap)
 		if_printf(vap->iv_ifp, "couldn't alloc ratectl structure\n");
 		return;
 	}
+
+	struct ieee80211_rc_stat * irs = IEEE80211_RATECTL_STAT(vap);
+	irs->irs_capabilities = capabilities;
+
 	sample->sample_smoothing_rate = 75;		/* ewma percentage ([0..99]) */
 	sample->sample_smoothing_minpackets = 100 / (100 - sample->sample_smoothing_rate);
 	sample->sample_rate = 10;			/* %time to try diff tx rates */
@@ -127,7 +131,7 @@ static const struct txschedule *mrr_schedules[IEEE80211_MODE_MAX+2] = {
 };
 
 static void
-sample_node_init(struct ieee80211_node *ni, uint32_t capabilities)
+sample_node_init(struct ieee80211_node *ni)
 {
 #define	RATE(_ix)	(ni->ni_rates.rs_rates[(_ix)] & IEEE80211_RATE_VAL)
 #define	DOT11RATE(_ix)	(rt->info[(_ix)].dot11Rate & IEEE80211_RATE_VAL)
@@ -149,9 +153,6 @@ sample_node_init(struct ieee80211_node *ni, uint32_t capabilities)
 		}
 	} else
 		san = ni->ni_rctls;
-
-	struct ieee80211_ratectl_node *irn = IEEE80211_RATECTL_NODE(ni);
-	irn->irn_capabilities = capabilities;
 	
 	san->san_sample = sample;
 
@@ -603,9 +604,9 @@ sample_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unuse
 		goto done;
 	}
 
-	if (IEEE80211_RATECTL_HASCAP_MRR(ni))
+	if (IEEE80211_RATECTL_HASCAP_MRR(vap))
 		mrr = 1;
-	if (! IEEE80211_RATECTL_HASCAP_MRRPROT(ni))
+	if (! IEEE80211_RATECTL_HASCAP_MRRPROT(vap))
 		mrr = 0;
 
 	best_rix = pick_best_rate(ni, rt, size_bin, !mrr);
@@ -758,7 +759,7 @@ sample_rates(struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 	struct ieee80211_sample_node *san = ni->ni_rctls;
 	uint8_t rix0 = sample_rate(ni, NULL, 0);
 	const struct txschedule *sched = &san->sched[rix0];
-	struct ieee80211_rc_series *rc = rc_info->ri_rc;
+	struct ieee80211_rc_series *rc = rc_info->iri_rc;
 
 	KASSERT(rix0 == sched->r0, ("rix0 (%x) != sched->r0 (%x)!\n",
 	    rix0, sched->r0));
@@ -895,15 +896,18 @@ sample_tx_complete(const struct ieee80211vap *vap,
 	int nframes, nbad;
 	int frame_size, mrr;
 
-	final_rix = rt->rateCodeToIndex[rc_info->ri_txrate];
-	short_tries = rc_info->ri_shortretry;
+	/* update per vap statistics */
+	ieee80211_ratectl_update_stat(vap, rc_info);
+
+	final_rix = rt->rateCodeToIndex[rc_info->iri_txrate];
+	short_tries = rc_info->iri_shortretry;
 	/* XXX why plus 1 here? */
-	long_tries = rc_info->ri_longretry + 1;
+	long_tries = rc_info->iri_longretry + 1;
 
-	nframes = rc_info->ri_txcnt;
-	nbad = rc_info->ri_failcnt;
+	nframes = rc_info->iri_txcnt;
+	nbad = rc_info->iri_failcnt;
 
-	frame_size = rc_info->ri_framelen;
+	frame_size = rc_info->iri_framelen;
 	mrr = 0;
 
 	if (nframes == 0) {
@@ -917,13 +921,13 @@ sample_tx_complete(const struct ieee80211vap *vap,
 		return;
 	}
 	
-	if (IEEE80211_RATECTL_HASCAP_MRR(ni))
+	if (IEEE80211_RATECTL_HASCAP_MRR(vap))
 		mrr = 1;
 	/* XXX check HT protmode too */
-	if (mrr && !IEEE80211_RATECTL_HASCAP_MRRPROT(ni))
+	if (mrr && !IEEE80211_RATECTL_HASCAP_MRRPROT(vap))
 		mrr = 0;
 	
-	if (!mrr || rc_info->ri_finaltsi == 0) {
+	if (!mrr || rc_info->iri_finaltsi == 0) {
 		if (!IS_RATE_DEFINED(san, final_rix)) {
 			return;
 		}
@@ -939,7 +943,7 @@ sample_tx_complete(const struct ieee80211vap *vap,
 			     nframes, nbad);
 
 	} else {
-		int finalTSIdx = rc_info->ri_finaltsi;
+		int finalTSIdx = rc_info->iri_finaltsi;
 		int i;
 
 		/*

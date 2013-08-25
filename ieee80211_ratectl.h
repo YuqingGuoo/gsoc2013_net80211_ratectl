@@ -23,7 +23,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 255970 2013-08-15 10:18:36Z ccqin $
+ * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 256474 2013-08-25 09:37:15Z ccqin $
  */
 #ifndef _NET80211_IEEE80211_RATECTL_H_
 #define _NET80211_IEEE80211_RATECTL_H_
@@ -63,13 +63,6 @@ enum ieee80211_ratealgs {
 #define HT_RC_2_MCS(_rc)    ((_rc) & 0x7f)
 #define HT_RC_2_STREAMS(_rc)    ((((_rc) & 0x78) >> 3) + 1)
 
-enum {
-	MCS_HT20,
-	MCS_HT20_SGI,
-	MCS_HT40,
-	MCS_HT40_SGI,
-};
-
 extern int max_4ms_framelen[4][32];
 
 struct ieee80211_rc_series {
@@ -81,31 +74,54 @@ struct ieee80211_rc_series {
 	uint16_t max4msframelen;
 };
 
-/* net80211 rate control infomation */
 struct ieee80211_rc_info {
-	struct ieee80211_rc_series ri_rc[IEEE80211_RATECTL_NUM];
-	int ri_framelen;
-	int ri_shortPreamble;
+	struct ieee80211_rc_series iri_rc[IEEE80211_RATECTL_NUM];
+	int iri_framelen;
+	int iri_shortPreamble;
 
 	/* TX info */
-	int ri_success;		/* TX success or not */
-	int ri_okcnt;		/* TX ok with or without retry */
-	int ri_failcnt;		/* TX retry-fail count */
-	int ri_txcnt;		/* TX count */
-	int ri_retrycnt;	/* TX retry count */
-	int ri_shortretry;
-	int ri_longretry;
-	int ri_finaltsi;
-	int ri_txrate;		/* hw tx rate */
+	int iri_success;	/* TX success or not */
+	int iri_okcnt;		/* TX ok with or without retry */
+	int iri_failcnt;	/* TX retry-fail count */
+	int iri_txcnt;		/* TX count */
+	int iri_retrycnt;	/* TX retry count */
+	int iri_shortretry;
+	int iri_longretry;
+	int iri_finaltsi;
+	int iri_txrate;		/* hw tx rate */
 };
+
+/* net80211 ratectl statistics. 
+ * per vap ratectl seeting must start with this common state
+ */
+struct ieee80211_rc_stat {
+	uint32_t irs_capabilities;		/* hardware capabilities offered to rc */
+
+	/* ratectl statistics */
+	uint32_t irs_txcnt;
+	uint32_t irs_failcnt
+	uint32_t irs_retrycnt;
+	uint32_t irs_shortretry;
+	uint32_t irs_longretry;
+};
+
+#define IEEE80211_RATECTL_STAT(_vap) \
+	((struct ieee80211_rc_stat *)((_vap)->iv_rs))
+
+#define	IEEE80211_RATECTL_HASCAP_MRR(_vap) \
+	(IEEE80211_RATECTL_STAT(_vap)->irs_capabilities & IEEE80211_RATECTL_CAP_MRR)
+#define	IEEE80211_RATECTL_HASCAP_MRRPROT(_vap) \
+	(IEEE80211_RATECTL_STAT(_vap)->irs_capabilities & IEEE80211_RATECTL_CAP_MRRPROT)
+#define	IEEE80211_RATECTL_HASCAP_MULTXCHAIN(_vap) \
+	(IEEE80211_RATECTL_STAT(_vap)->irs_capabilities & IEEE80211_RATECTL_CAP_MULTXCHAIN)
 
 struct ieee80211_ratectl {
 	const char *ir_name;
 	int	(*ir_attach)(const struct ieee80211vap *);
 	void	(*ir_detach)(const struct ieee80211vap *);
-	void	(*ir_init)(struct ieee80211vap *);
+	void	(*ir_init)(struct ieee80211vap *, uint32_t);
 	void	(*ir_deinit)(struct ieee80211vap *);
-	void	(*ir_node_init)(struct ieee80211_node *, uint32_t);
+	void	(*ir_node_init)(struct ieee80211_node *);
 	void	(*ir_node_deinit)(struct ieee80211_node *);
 	int	(*ir_rate)(struct ieee80211_node *, void *, uint32_t);
 	void	(*ir_rates)(struct ieee80211_node *, struct ieee80211_rc_info *);
@@ -118,27 +134,12 @@ struct ieee80211_ratectl {
 	void	(*ir_setinterval)(const struct ieee80211vap *, int);
 };
 
-/* per ratectl node must start with this common state */
-struct ieee80211_ratectl_node {
-	uint32_t irn_capabilities;		/* hardware capabilities offered to rc */
-};
-
-#define IEEE80211_RATECTL_NODE(_ni) \
-	((struct ieee80211_ratectl_node *)((_ni)->ni_rctls))
-
-#define	IEEE80211_RATECTL_HASCAP_MRR(_ni) \
-	(IEEE80211_RATECTL_NODE(_ni)->irn_capabilities & IEEE80211_RATECTL_CAP_MRR)
-#define	IEEE80211_RATECTL_HASCAP_MRRPROT(_ni) \
-	(IEEE80211_RATECTL_NODE(_ni)->irn_capabilities & IEEE80211_RATECTL_CAP_MRRPROT)
-#define	IEEE80211_RATECTL_HASCAP_MULTXCHAIN(_ni) \
-	(IEEE80211_RATECTL_NODE(_ni)->irn_capabilities & IEEE80211_RATECTL_CAP_MULTXCHAIN)
-
 void	ieee80211_ratectl_register(int, const struct ieee80211_ratectl *);
 void	ieee80211_ratectl_unregister(int);
-void	ieee80211_ratectl_init(struct ieee80211vap *);
+void	ieee80211_ratectl_init(struct ieee80211vap *, uint32_t);
 void	ieee80211_ratectl_set(struct ieee80211vap *, int);
 void	ieee80211_ratectl_complete_rcflags(struct ieee80211_node *, 
-		struct ieee80211_rc_info*);
+						struct ieee80211_rc_info*);
 
 MALLOC_DECLARE(M_80211_RATECTL);
 
@@ -149,11 +150,11 @@ ieee80211_ratectl_deinit(struct ieee80211vap *vap)
 }
 
 static void __inline
-ieee80211_ratectl_node_init(struct ieee80211_node *ni, uint32_t capabilities)
+ieee80211_ratectl_node_init(struct ieee80211_node *ni)
 {
 	const struct ieee80211vap *vap = ni->ni_vap;
 
-	vap->iv_rate->ir_node_init(ni, capabilities);
+	vap->iv_rate->ir_node_init(ni);
 }
 
 static void __inline
@@ -238,7 +239,7 @@ ieee80211_ratectl_hascap_stbc(const struct ieee80211vap *vap,
 {
    return IS_VAP_HT(vap) && (vap->iv_htcaps & IEEE80211_HTCAP_TXSTBC) &&
 			    (ni->ni_htcap & IEEE80211_HTCAP_RXSTBC_1STREAM) &&
-			    IEEE80211_RATECTL_HASCAP_MULTXCHAIN(ni);
+			    IEEE80211_RATECTL_HASCAP_MULTXCHAIN(vap);
 }
 
 static int __inline
@@ -257,6 +258,18 @@ ieee80211_ratectl_get_rateset(const struct ieee80211_node *ni)
 	return ieee80211_ratectl_node_is11n(ni) ? 
 				(struct ieee80211_rateset *) &ni->ni_htrates :
 				&ni->ni_rates;
+}
+
+static void __inline
+ieee80211_ratectl_update_stat(struct ieee80211vap *vap,
+		const struct ieee80211_rc_info *rc_info)
+{
+	struct ieee80211_rc_stat * irs = IEEE80211_RATECTL_STAT(vap);
+	irs->irs_txcnt += rc_info->iri_txcnt;
+	irs->irs_failcnt += rc_info->iri_failcnt;
+	irs->irs_retrycnt += rc_info->iri_retrycnt;
+	irs->irs_shortretry += rc_info->iri_shortretry;
+	irs->irs_longretry += rc_info->iri_longretry;
 }
 
 #endif

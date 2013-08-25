@@ -1,4 +1,4 @@
-/* $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.h 255966 2013-08-15 08:00:01Z ccqin $ */
+/* $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.h 256474 2013-08-25 09:37:15Z ccqin $ */
 /*	$OpenBSD: ieee80211_amrr.h,v 1.3 2006/06/17 19:34:31 damien Exp $	*/
 
 /*-
@@ -36,6 +36,7 @@
 struct ieee80211vap;
 
 struct ieee80211_amrr {
+	struct ieee80211_rc_stat amrr_stat;
 	u_int	amrr_min_success_threshold;
 	u_int	amrr_max_success_threshold;
 	int	amrr_interval;		/* update interval (ticks) */
@@ -48,7 +49,6 @@ struct ieee80211_amrr {
  * Rate control state for a given node.
  */
 struct ieee80211_amrr_node {
-	struct ieee80211_ratectl_node amn_node;
 	struct ieee80211_amrr *amn_amrr;/* backpointer */
 	int	amn_rix;		/* current rate index */
 	int	amn_ticks;		/* time of last update */

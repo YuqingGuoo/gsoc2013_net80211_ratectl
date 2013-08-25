@@ -25,7 +25,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_node.c 255966 2013-08-15 08:00:01Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_node.c 256474 2013-08-25 09:37:15Z ccqin $");
 
 #include "opt_wlan.h"
 
@@ -846,8 +846,7 @@ ieee80211_sta_join(struct ieee80211vap *vap, struct ieee80211_channel *chan,
 	/* XXX QoS? Difficult given that WME config is specific to a master */
 
 	ieee80211_node_setuptxparms(ni);
-	/* XXX TODO fill the cap field */
-	ieee80211_ratectl_node_init(ni, 0);
+	ieee80211_ratectl_node_init(ni);
 
 	return ieee80211_sta_join1(ieee80211_ref_node(ni));
 }
@@ -1189,8 +1188,7 @@ ieee80211_alloc_node(struct ieee80211_node_table *nt,
 	IEEE80211_NOTE(vap, IEEE80211_MSG_INACT, ni,
 	    "%s: inact_reload %u", __func__, ni->ni_inact_reload);
 
-	/* XXX TODO fill the cap field */
-	ieee80211_ratectl_node_init(ni, 0);
+	ieee80211_ratectl_node_init(ni);
 
 	return ni;
 }
@@ -1230,8 +1228,7 @@ ieee80211_tmp_node(struct ieee80211vap *vap,
 		/* XXX optimize away */
 		ieee80211_psq_init(&ni->ni_psq, "unknown");
 
-		/* XXX TODO fill the cap field */
-		ieee80211_ratectl_node_init(ni, 0);
+		ieee80211_ratectl_node_init(ni);
 	} else {
 		/* XXX msg */
 		vap->iv_stats.is_rx_nodealloc++;
@@ -1460,8 +1457,7 @@ ieee80211_fakeup_adhoc_node(struct ieee80211vap *vap,
 #endif
 		}
 		ieee80211_node_setuptxparms(ni);
-		/* XXX TODO fill the cap field */
-		ieee80211_ratectl_node_init(ni, 0);
+		ieee80211_ratectl_node_init(ni);
 		if (ic->ic_newassoc != NULL)
 			ic->ic_newassoc(ni, 1);
 		/* XXX not right for 802.1x/WPA */
@@ -1535,8 +1531,7 @@ ieee80211_init_neighbor(struct ieee80211_node *ni,
 		ieee80211_setup_basic_htrates(ni,
 		    ni->ni_ies.htinfo_ie);
 		ieee80211_node_setuptxparms(ni);
-		/* XXX TODO fill the cap field */
-		ieee80211_ratectl_node_init(ni, 0);
+		ieee80211_ratectl_node_init(ni);
 	}
 }
 
@@ -1563,8 +1558,7 @@ ieee80211_add_neighbor(struct ieee80211vap *vap,
 		if (ieee80211_iserp_rateset(&ni->ni_rates))
 			ni->ni_flags |= IEEE80211_NODE_ERP;
 		ieee80211_node_setuptxparms(ni);
-		/* XXX TODO fill the cap field */
-		ieee80211_ratectl_node_init(ni, 0);
+		ieee80211_ratectl_node_init(ni);
 		if (ic->ic_newassoc != NULL)
 			ic->ic_newassoc(ni, 1);
 		/* XXX not right for 802.1x/WPA */
@@ -2534,8 +2528,7 @@ ieee80211_node_join(struct ieee80211_node *ni, int resp)
 	);
 
 	ieee80211_node_setuptxparms(ni);
-	/* XXX TODO fill the cap field */
-	ieee80211_ratectl_node_init(ni, 0);
+	ieee80211_ratectl_node_init(ni);
 	/* give driver a chance to setup state like ni_txrate */
 	if (ic->ic_newassoc != NULL)
 		ic->ic_newassoc(ni, newassoc);
