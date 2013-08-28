@@ -1,4 +1,4 @@
-/*	$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_rssadapt.c 209135 2010-06-12 07:02:43Z ed $	*/
+/*	$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_rssadapt.c 256554 2013-08-26 02:45:46Z ccqin $	*/
 /* $NetBSD: ieee80211_rssadapt.c,v 1.9 2005/02/26 22:45:09 perry Exp $ */
 /*-
  * Copyright (c) 2010 Rui Paulo <rpaulo@FreeBSD.org>
@@ -74,7 +74,7 @@ static struct rssadapt_expavgctl master_expavgctl = {
 				    parm##_denom)
 
 static void	rssadapt_setinterval(const struct ieee80211vap *, int);
-static void	rssadapt_init(struct ieee80211vap *);
+static void	rssadapt_init(struct ieee80211vap *, uint32_t);
 static void	rssadapt_deinit(struct ieee80211vap *);
 static void	rssadapt_updatestats(struct ieee80211_rssadapt_node *);
 static void	rssadapt_node_init(struct ieee80211_node *);
@@ -121,7 +121,7 @@ rssadapt_setinterval(const struct ieee80211vap *vap, int msecs)
 }
 
 static void
-rssadapt_init(struct ieee80211vap *vap)
+rssadapt_init(struct ieee80211vap *vap, uint32_t capabilities)
 {
 	struct ieee80211_rssadapt *rs;
 
@@ -134,6 +134,10 @@ rssadapt_init(struct ieee80211vap *vap)
 		if_printf(vap->iv_ifp, "couldn't alloc ratectl structure\n");
 		return;
 	}
+
+	struct ieee80211_rc_stat * irs = IEEE80211_RATECTL_STAT(vap);
+	irs->irs_capabilities = capabilities;
+
 	rs->vap = vap;
 	rssadapt_setinterval(vap, 500 /* msecs */);
 	rssadapt_sysctlattach(vap, vap->iv_sysctl, vap->iv_oid);

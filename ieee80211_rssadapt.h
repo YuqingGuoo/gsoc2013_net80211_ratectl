@@ -1,4 +1,4 @@
-/*	$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_rssadapt.h 206401 2010-04-07 15:29:13Z rpaulo $	*/
+/*	$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_rssadapt.h 256555 2013-08-26 03:07:53Z ccqin $	*/
 /* $NetBSD: ieee80211_rssadapt.h,v 1.4 2005/02/26 22:45:09 perry Exp $ */
 /*-
  * Copyright (c) 2003, 2004 David Young.  All rights reserved.
@@ -32,6 +32,8 @@
 #ifndef _NET80211_IEEE80211_RSSADAPT_H_
 #define _NET80211_IEEE80211_RSSADAPT_H_
 
+#include <net80211/ieee80211_ratectl.h>
+
 /* Data-rate adaptation loosely based on "Link Adaptation Strategy
  * for IEEE 802.11 WLAN via Received Signal Strength Measurement"
  * by Javier del Prado Pavon and Sunghyun Choi.
@@ -43,6 +45,7 @@
 #define	IEEE80211_RSSADAPT_BKTPOWER	3	/* 2**_BKTPOWER */
 
 struct ieee80211_rssadapt {
+	struct ieee80211_rc_stat rssadapt_stat;
 	const struct ieee80211vap *vap;
 	int	interval;			/* update interval (ticks) */
 };
