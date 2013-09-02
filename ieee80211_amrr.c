@@ -19,7 +19,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 256474 2013-08-25 09:37:15Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 256830 2013-09-02 09:51:41Z ccqin $");
 
 /*-
  * Naive implementation of the Adaptive Multi Rate Retry algorithm:
@@ -65,9 +65,9 @@ static void	amrr_node_deinit(struct ieee80211_node *);
 static int	amrr_update(struct ieee80211_amrr *,
     			struct ieee80211_amrr_node *, struct ieee80211_node *);
 static int	amrr_rate(struct ieee80211_node *, void *, uint32_t);
+static void	amrr_rates(struct ieee80211_node *, struct ieee80211_rc_info *);
 static void	amrr_tx_complete(const struct ieee80211vap *,
-    			const struct ieee80211_node *, int, 
-			void *, void *);
+    			const struct ieee80211_node *, struct ieee80211_rc_info *);
 static void	amrr_tx_update(const struct ieee80211vap *vap,
 			const struct ieee80211_node *, void *, void *, void *);
 static void	amrr_sysctlattach(struct ieee80211vap *,
@@ -85,6 +85,7 @@ static const struct ieee80211_ratectl amrr = {
 	.ir_node_init	= amrr_node_init,
 	.ir_node_deinit	= amrr_node_deinit,
 	.ir_rate	= amrr_rate,
+	.ir_rates	= amrr_rates,
 	.ir_tx_complete	= amrr_tx_complete,
 	.ir_tx_update	= amrr_tx_update,
 	.ir_setinterval	= amrr_setinterval,
@@ -303,6 +304,66 @@ amrr_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unused)
 	return rix;
 }
 
+static void
+amrr_rates(struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
+{
+#define	RATE(_ix)	(rs->rs_rates[(_ix)] & IEEE80211_RATE_VAL)
+#define	MCS(_ix)	(rs->rs_rates[(_ix)] | IEEE80211_RATE_MCS)
+	struct ieee80211_rc_series *rc = rc_info->iri_rc;
+	const struct ieee80211_rateset *rs = NULL;
+	const struct ieee80211_rate_table *rt = NULL;
+	int rix, code;
+
+	rs = ieee80211_ratectl_get_rateset(ni);
+	rt = ieee80211_get_ratetable(ni->ni_ic->ic_curchan);
+
+	rix = amrr_rate(ni, NULL, 0);
+
+	rc[0].flags = rc[1].flags = rc[2].flags = rc[3].flags = 0;
+
+	if (rs->rs_nrates > 0) {
+		code = ieee80211_ratectl_node_is11n(ni)? MCS(rix) : RATE(rix);
+		rc[0].rix = rt->rateCodeToIndex[code];
+
+		if (IEEE80211_RATECTL_HASCAP_MRR(ni->ni_vap)) {
+			rc[0].tries = 1;
+			rc[1].tries = 1;
+			rc[2].tries = 1;
+			rc[3].tries = 1;
+			if (--rix >= 0) {
+				code = ieee80211_ratectl_node_is11n(ni)? MCS(rix) : RATE(rix);
+				rc[1].rix = rt->rateCodeToIndex[code];
+			} else {
+				rc[1].rix = 0;
+			}
+			if (--rix >= 0) {
+				code = ieee80211_ratectl_node_is11n(ni)? MCS(rix) : RATE(rix);
+				rc[2].rix = rt->rateCodeToIndex[code];
+			} else {
+				rc[2].rix = 0;
+			}
+			if (rix > 0) {
+				/* NB: only do this if we didn't already do it above */
+				code = ieee80211_ratectl_node_is11n(ni)? MCS(0) : RATE(0);
+				rc[3].rix = rt->rateCodeToIndex[code];
+			} else {
+				rc[3].rix = 0;
+			}
+		} else {
+			rc[0].tries = IEEE80211_RATECTL_TXMAXTRY;
+
+			rc[1].tries = 0;
+			rc[2].tries = 0;
+			rc[3].tries = 0;
+			rc[1].rix = 0;
+			rc[2].rix = 0;
+			rc[3].rix = 0;
+		}
+	}
+#undef RATE
+#undef MCS
+}
+
 /*
  * Update statistics with tx complete status.  Ok is non-zero
  * if the packet is known to be ACK'd.  Retries has the number
@@ -310,22 +371,16 @@ amrr_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unused)
  */
 static void
 amrr_tx_complete(const struct ieee80211vap *vap,
-    const struct ieee80211_node *ni, int ok,
-    void *arg1, void *arg2)
+    const struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 {
 	struct ieee80211_amrr_node *amn = ni->ni_rctls;
-	int retries = *(int *)arg1;
-
-	/* XXX need to change arg2 to pointer of ieee80211_rc_info */
-	struct ieee80211_rc_info *rc_info = (struct ieee80211_rc_info*)arg2;
 
 	/* update per vap statistics */
 	ieee80211_ratectl_update_stat(vap, rc_info);
 
-	amn->amn_txcnt++;
-	if (ok)
-		amn->amn_success++;
-	amn->amn_retrycnt += retries;
+	amn->amn_txcnt += rc_info->iri_txcnt;
+	amn->amn_success += (rc_info->iri_txcnt - rc_info->iri_failcnt);
+	amn->amn_retrycnt += rc_info->iri_retrycnt;
 }
 
 /*

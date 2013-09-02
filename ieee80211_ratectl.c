@@ -25,7 +25,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 256474 2013-08-25 09:37:15Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 256830 2013-09-02 09:51:41Z ccqin $");
 
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -131,9 +131,8 @@ ieee80211_ratectl_complete_rcflags(struct ieee80211_node *ni,
 		struct ieee80211_rc_info *rc_info)
 {
 	struct ieee80211vap *vap = ni->ni_vap;
-	const struct ieee80211_rate_table * rt = NULL;
 	struct ieee80211_rc_series *rc = rc_info->iri_rc;
-	/* int shortPreamble = rc_info->ri_shortPreamble; */
+	const struct ieee80211_rate_table * rt = NULL;
 	uint8_t rate;
 	int i;
 
@@ -160,30 +159,27 @@ ieee80211_ratectl_complete_rcflags(struct ieee80211_node *ni,
 
 		rate = rt->info[rc[i].rix].dot11Rate;
 
-		/*
-		 * Only enable short preamble for legacy rates
-		 */
+		/* Only enable dual-stream, shortgi, 2040 if HT is set */
 
-		/* XXX how we get the non_ht ratecode here? */
-
-		#if 0
-		if ((! IS_HT_RATE(rate)) && shortPreamble)
-			rate |= rt->info[rc[i].rix].shortPreamble;
-		#endif
-
-		/*
-		 * Save this, used by the TX and completion code
-		 */
-		rc[i].ratecode = rate;
-
-		/* Only enable shortgi, 2040, dual-stream if HT is set */
 		if (IS_HT_RATE(rate)) {
 			rc[i].flags |= IEEE80211_RATECTL_FLAG_HT;
 
-			/*
-			 * XXX TODO: LDPC
-			 */
+			if (ieee80211_ratectl_hascap_cw40(ni))
+				rc[i].flags |= IEEE80211_RATECTL_FLAG_CW40;
 
+			if (ieee80211_ratectl_hascap_shortgi(ni))
+				rc[i].flags |= IEEE80211_RATECTL_FLAG_SGI;
+			/*
+			 * If we have STBC TX enabled and the receiver
+			 * can receive (at least) 1 stream STBC, AND it's
+			 * MCS 0-7, AND we have at least two chains enabled,
+			 * enable STBC.
+			 */
+			if (ieee80211_ratectl_hascap_stbc(ni) &&
+				(rate & IEEE80211_RATE_VAL) < 8 &&
+				HT_RC_2_STREAMS(rate) == 1)
+				rc[i].flags |= IEEE80211_RATECTL_FLAG_STBC;
+			
 			/*
 			 * Dual / Triple stream rate?
 			 */
@@ -191,6 +187,35 @@ ieee80211_ratectl_complete_rcflags(struct ieee80211_node *ni,
 				rc[i].flags |= IEEE80211_RATECTL_FLAG_DS;
 			else if (HT_RC_2_STREAMS(rate) == 3)
 				rc[i].flags |= IEEE80211_RATECTL_FLAG_TS;
+
+			/*
+			 * Calculate the maximum 4ms frame length based
+			 * on the MCS rate, SGI and channel width flags.
+			 */
+			if (HT_RC_2_MCS(rate) < 32) {
+				int j;
+				if (rc[i].flags & IEEE80211_RATECTL_FLAG_CW40) {
+					if (rc[i].flags & IEEE80211_RATECTL_FLAG_SGI)
+						j = MCS_HT40_SGI;
+					else
+						j = MCS_HT40;
+				} else {
+					if (rc[i].flags & IEEE80211_RATECTL_FLAG_SGI)
+						j = MCS_HT20_SGI;
+					else
+						j = MCS_HT20;
+				}
+				rc[i].max4msframelen =
+				    max_4ms_framelen[j][HT_RC_2_MCS(rate)];
+			}
+		} else {
+			rc[i].max4msframelen = 0;
+
+			/*
+			 * Only enable short preamble for legacy rates
+			 */
+			if (rc_info->iri_flags & IEEE80211_RATECTL_INFO_SP)
+				rc[i].flags |= IEEE80211_RATECTL_FLAG_SP;
 		}
 
 		/*
@@ -200,28 +225,6 @@ ieee80211_ratectl_complete_rcflags(struct ieee80211_node *ni,
 		 */
 		rc[i].tx_power_cap = ieee80211_get_node_txpower(ni);
 		
-		/*
-		 * Calculate the maximum 4ms frame length based
-		 * on the MCS rate, SGI and channel width flags.
-		 */
-		if ((rc[i].flags & IEEE80211_RATECTL_FLAG_HT) &&
-		    (HT_RC_2_MCS(rate) < 32)) {
-			int j;
-			if (rc[i].flags & IEEE80211_RATECTL_FLAG_CW40) {
-				if (rc[i].flags & IEEE80211_RATECTL_FLAG_SGI)
-					j = MCS_HT40_SGI;
-				else
-					j = MCS_HT40;
-			} else {
-				if (rc[i].flags & IEEE80211_RATECTL_FLAG_SGI)
-					j = MCS_HT20_SGI;
-				else
-					j = MCS_HT20;
-			}
-			rc[i].max4msframelen =
-			    max_4ms_framelen[j][HT_RC_2_MCS(rate)];
-		} else
-			rc[i].max4msframelen = 0;
 	}
 }
 

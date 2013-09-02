@@ -23,7 +23,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 256475 2013-08-25 09:58:29Z ccqin $
+ * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 256824 2013-09-02 07:43:31Z ccqin $
  */
 #ifndef _NET80211_IEEE80211_RATECTL_H_
 #define _NET80211_IEEE80211_RATECTL_H_
@@ -44,6 +44,7 @@ enum ieee80211_ratealgs {
 #define	IEEE80211_RATECTL_FALSE		0
 
 #define	IEEE80211_RATECTL_NUM		4
+#define	IEEE80211_RATECTL_TXMAXTRY	11
 
 #define	IEEE80211_RATECTL_FLAG_DS		0x01	/* dual-stream rate */
 #define	IEEE80211_RATECTL_FLAG_CW40		0x02	/* use HT40 */
@@ -52,6 +53,7 @@ enum ieee80211_ratealgs {
 #define	IEEE80211_RATECTL_FLAG_RTSCTS	0x10	/* enable RTS/CTS protection */
 #define	IEEE80211_RATECTL_FLAG_STBC		0x20	/* enable STBC */
 #define	IEEE80211_RATECTL_FLAG_TS		0x40	/* triple-stream rate */
+#define	IEEE80211_RATECTL_FLAG_SP		0x80	/* short preamble */
 
 /* Hardware CAPs offered to rate control algo */
 #define	IEEE80211_RATECTL_CAP_MRR			0x01	/* support MRR */
@@ -76,23 +78,28 @@ struct ieee80211_rc_series {
 
 struct ieee80211_rc_info {
 	struct ieee80211_rc_series iri_rc[IEEE80211_RATECTL_NUM];
-	int iri_framelen;
-	int iri_shortPreamble;
+	uint32_t iri_framelen;
+	uint16_t iri_flags;		/* for now, just records short preamble */
 
 	/* TX info */
-	int iri_success;	/* TX success or not */
-	int iri_okcnt;		/* TX ok with or without retry */
-	int iri_failcnt;	/* TX retry-fail count */
-	int iri_txcnt;		/* TX count */
-	int iri_retrycnt;	/* TX retry count */
-	int iri_shortretry;
-	int iri_longretry;
-	int iri_finaltsi;
-	int iri_txrate;		/* hw tx rate */
+	uint8_t iri_txcnt;		/* TX count */
+	uint8_t iri_okcnt;		/* TX ok with or without retry */
+	uint8_t iri_failcnt;	/* TX retry-fail count */
+	uint8_t iri_retrycnt;	/* TX retry count */
+	uint8_t iri_shortretry;
+	uint8_t iri_longretry;
+	uint8_t iri_finaltsi;
+	uint8_t iri_txrate;		/* hw tx rate */
 };
 
-/* net80211 ratectl statistics. 
- * per vap ratectl seeting must start with this common state
+/* ieee80211_rc_info flags */
+#define	IEEE80211_RATECTL_INFO_SP		0x01	/* short preamble */
+
+#define IEEE80211_RATECTL_INFO(_m) ((struct ieee80211_rc_info *)(_m)->m_ccb)
+
+/*
+ * net80211 ratectl statistics. 
+ * per vap ratectl seeting must start with this common state.
  */
 struct ieee80211_rc_stat {
 	uint32_t irs_capabilities;		/* hardware capabilities offered to rc */
@@ -126,8 +133,7 @@ struct ieee80211_ratectl {
 	int	(*ir_rate)(struct ieee80211_node *, void *, uint32_t);
 	void	(*ir_rates)(struct ieee80211_node *, struct ieee80211_rc_info *);
 	void	(*ir_tx_complete)(const struct ieee80211vap *,
-	    			  const struct ieee80211_node *, int,
-	    			  void *, void *);
+	    			  const struct ieee80211_node *, struct ieee80211_rc_info *);
 	void	(*ir_tx_update)(const struct ieee80211vap *,
 	    			const struct ieee80211_node *,
 	    			void *, void *, void *);
@@ -184,9 +190,9 @@ ieee80211_ratectl_rates(struct ieee80211_node *ni, struct ieee80211_rc_info *rc_
 
 static void __inline
 ieee80211_ratectl_tx_complete(const struct ieee80211vap *vap,
-    const struct ieee80211_node *ni, int status, void *arg1, void *arg2)
+    const struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 {
-	vap->iv_rate->ir_tx_complete(vap, ni, status, arg1, arg2);
+	vap->iv_rate->ir_tx_complete(vap, ni, rc_info);
 }
 
 static void __inline
@@ -207,39 +213,40 @@ ieee80211_ratectl_setinterval(const struct ieee80211vap *vap, int msecs)
 }
 
 static int __inline
-ieee80211_ratectl_hascap_cw40(const struct ieee80211vap *vap,
-		const struct ieee80211_node *ni)
+ieee80211_ratectl_hascap_cw40(const struct ieee80211_node *ni)
 {
-	return IS_VAP_HT(vap) && (ni->ni_chw == 40);
+	return ni->ni_chw == 40;
 }
 
 static int __inline
-ieee80211_ratectl_hascap_shortgi(const struct ieee80211vap *vap,
-		const struct ieee80211_node *ni)
+ieee80211_ratectl_hascap_shortgi(const struct ieee80211_node *ni)
 {
-	if (IS_VAP_HT(vap))
-	{
-		if (ni->ni_chw == 40 &&
-				vap->iv_htcaps & IEEE80211_HTCAP_SHORTGI40 &&
-				ni->ni_htcap & IEEE80211_HTCAP_SHORTGI40)
-			return IEEE80211_RATECTL_TRUE;
+	struct ieee80211com *ic = ni->ni_ic;
 
-		if (ni->ni_chw == 20 &&
-				vap->iv_htcaps & IEEE80211_HTCAP_SHORTGI20 &&
-				ni->ni_htcap & IEEE80211_HTCAP_SHORTGI20)
-			return IEEE80211_RATECTL_TRUE;
-	}
+	if (ni->ni_chw == 40 &&
+		ic->ic_htcaps & IEEE80211_HTCAP_SHORTGI40 &&
+		ni->ni_htcap & IEEE80211_HTCAP_SHORTGI40)
+		return IEEE80211_RATECTL_TRUE;
+
+	if (ni->ni_chw == 20 &&
+		ic->ic_htcaps & IEEE80211_HTCAP_SHORTGI20 &&
+		ni->ni_htcap & IEEE80211_HTCAP_SHORTGI20)
+		return IEEE80211_RATECTL_TRUE;
+
 	return IEEE80211_RATECTL_FALSE;
 }
 
-
 static int __inline
-ieee80211_ratectl_hascap_stbc(const struct ieee80211vap *vap,
-		const struct ieee80211_node *ni)
+ieee80211_ratectl_hascap_stbc(const struct ieee80211_node *ni)
 {
-   return IS_VAP_HT(vap) && (vap->iv_htcaps & IEEE80211_HTCAP_TXSTBC) &&
-			    (ni->ni_htcap & IEEE80211_HTCAP_RXSTBC_1STREAM) &&
-			    IEEE80211_RATECTL_HASCAP_MULTXCHAIN(vap);
+	struct ieee80211com *ic = ni->ni_ic;
+
+	if (ic->ic_htcaps & IEEE80211_HTCAP_TXSTBC &&
+		ni->ni_htcap & IEEE80211_HTCAP_RXSTBC_1STREAM &&
+		IEEE80211_RATECTL_HASCAP_MULTXCHAIN(ni->ni_vap))
+		return IEEE80211_RATECTL_TRUE;
+	
+	return IEEE80211_RATECTL_FALSE;
 }
 
 static int __inline
@@ -270,6 +277,23 @@ ieee80211_ratectl_update_stat(const struct ieee80211vap *vap,
 	irs->irs_retrycnt += rc_info->iri_retrycnt;
 	irs->irs_shortretry += rc_info->iri_shortretry;
 	irs->irs_longretry += rc_info->iri_longretry;
+}
+
+static void __inline
+ieee80211_ratectl_rc_info_set(struct ieee80211_rc_info *rc_info,
+		uint8_t txcnt, uint8_t failcnt, uint32_t framelen,
+		uint8_t shortretry, uint8_t longretry,
+		uint8_t finaltsi, uint8_t txrate)
+{
+	rc_info->iri_txcnt = txcnt;
+	rc_info->iri_failcnt = failcnt;
+	rc_info->iri_okcnt = txcnt - failcnt;
+	rc_info->iri_framelen = framelen;
+	rc_info->iri_shortretry = shortretry;
+	rc_info->iri_longretry = longretry;
+	rc_info->iri_retrycnt = shortretry + longretry;
+	rc_info->iri_finaltsi = finaltsi;
+	rc_info->iri_txrate = txrate;
 }
 
 #endif
