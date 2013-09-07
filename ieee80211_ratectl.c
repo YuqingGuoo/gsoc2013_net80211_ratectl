@@ -25,7 +25,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 256830 2013-09-02 09:51:41Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 257067 2013-09-07 09:37:45Z ccqin $");
 
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -106,6 +106,9 @@ ieee80211_ratectl_init(struct ieee80211vap *vap, uint32_t capabilities)
 	if (vap->iv_rate == ratectls[IEEE80211_RATECTL_NONE])
 		ieee80211_ratectl_set(vap, IEEE80211_RATECTL_AMRR);
 	vap->iv_rate->ir_init(vap, capabilities);
+	IEEE80211_DPRINTF(vap, IEEE80211_MSG_RATECTL,
+	    "%s: ratectl initialized. caps=0x%08x\n",
+	    __func__, capabilities);
 }
 
 void

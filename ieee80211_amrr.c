@@ -19,7 +19,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 256830 2013-09-02 09:51:41Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 257067 2013-09-07 09:37:45Z ccqin $");
 
 /*-
  * Naive implementation of the Adaptive Multi Rate Retry algorithm:
@@ -191,9 +191,8 @@ amrr_node_init(struct ieee80211_node *ni)
 	amn->amn_ticks = ticks;
 
 	IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
-	    "AMRR: nrates=%d, initial rate %d",
-	    rs->rs_nrates,
-	    rate);
+	    "%s: AMRR: nrates=%d, initial rate %d",
+		__func__, rs->rs_nrates, rate);
 }
 
 static void
@@ -215,8 +214,8 @@ amrr_update(struct ieee80211_amrr *amrr, struct ieee80211_amrr_node *amn,
 
 
 	IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
-	    "AMRR: current rate %d, txcnt=%d, retrycnt=%d",
-	    rs->rs_rates[rix] & IEEE80211_RATE_VAL,
+	    "%s: AMRR: current rate %d, txcnt=%d, retrycnt=%d",
+	    __func__, rs->rs_rates[rix] & IEEE80211_RATE_VAL,
 	    amn->amn_txcnt,
 	    amn->amn_retrycnt);
 
@@ -236,8 +235,8 @@ amrr_update(struct ieee80211_amrr *amrr, struct ieee80211_amrr_node *amn,
 			amn->amn_success = 0;
 			rix++;
 			IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
-			    "AMRR increasing rate %d (txcnt=%d retrycnt=%d)",
-			    rs->rs_rates[rix] & IEEE80211_RATE_VAL,
+			    "%s: AMRR increasing rate %d (txcnt=%d retrycnt=%d)",
+			    __func__, rs->rs_rates[rix] & IEEE80211_RATE_VAL,
 			    amn->amn_txcnt, amn->amn_retrycnt);
 		} else {
 			amn->amn_recovery = 0;
@@ -257,8 +256,8 @@ amrr_update(struct ieee80211_amrr *amrr, struct ieee80211_amrr_node *amn,
 			}
 			rix--;
 			IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
-			    "AMRR decreasing rate %d (txcnt=%d retrycnt=%d)",
-			    rs->rs_rates[rix] & IEEE80211_RATE_VAL,
+			    "%s: AMRR decreasing rate %d (txcnt=%d retrycnt=%d)",
+			    __func__, rs->rs_rates[rix] & IEEE80211_RATE_VAL,
 			    amn->amn_txcnt, amn->amn_retrycnt);
 		}
 		amn->amn_recovery = 0;
@@ -360,6 +359,13 @@ amrr_rates(struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 			rc[3].rix = 0;
 		}
 	}
+	IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
+	    "%s: AMRR rate sets(rix, tries). rc[0]:(%d, %d), rc[1]:(%d, %d), " 
+		"rc[2]:(%d, %d), rc[3]:(%d, %d)", __func__, 
+		rc[0].rix, rc[0].tries,
+		rc[1].rix, rc[1].tries, 
+		rc[2].rix, rc[2].tries, 
+		rc[3].rix, rc[3].tries);
 #undef RATE
 #undef MCS
 }
@@ -381,6 +387,12 @@ amrr_tx_complete(const struct ieee80211vap *vap,
 	amn->amn_txcnt += rc_info->iri_txcnt;
 	amn->amn_success += (rc_info->iri_txcnt - rc_info->iri_failcnt);
 	amn->amn_retrycnt += rc_info->iri_retrycnt;
+
+	IEEE80211_NOTE(vap, IEEE80211_MSG_RATECTL, ni,
+	    "%s: AMRR tx complete. txcnt=%d(%d) success=%d(%d) retrycnt=%d(%d)\n",
+	    __func__, amn->amn_txcnt, rc_info->iri_txcnt,
+		amn->amn_success, (rc_info->iri_txcnt - rc_info->iri_failcnt),
+		amn->amn_retrycnt, rc_info->iri_retrycnt);
 }
 
 /*
@@ -398,6 +410,9 @@ amrr_tx_update(const struct ieee80211vap *vap, const struct ieee80211_node *ni,
 	amn->amn_txcnt = txcnt;
 	amn->amn_success = success;
 	amn->amn_retrycnt = retrycnt;
+	IEEE80211_NOTE(vap, IEEE80211_MSG_RATECTL, ni,
+	    "%s: AMRR tx update. txcnt=%d success=%d retrycnt=%d\n",
+	    __func__, txcnt, success, retrycnt);
 }
 
 static int

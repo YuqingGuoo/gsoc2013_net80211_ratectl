@@ -1,4 +1,4 @@
-/*	$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_rssadapt.c 256554 2013-08-26 02:45:46Z ccqin $	*/
+/*	$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_rssadapt.c 256929 2013-09-05 02:56:58Z ccqin $	*/
 /* $NetBSD: ieee80211_rssadapt.c,v 1.9 2005/02/26 22:45:09 perry Exp $ */
 /*-
  * Copyright (c) 2010 Rui Paulo <rpaulo@FreeBSD.org>
@@ -84,8 +84,7 @@ static void	rssadapt_lower_rate(struct ieee80211_rssadapt_node *, int, int);
 static void	rssadapt_raise_rate(struct ieee80211_rssadapt_node *,
 			int, int);
 static void	rssadapt_tx_complete(const struct ieee80211vap *,
-    			const struct ieee80211_node *, int,
-			void *, void *);
+    			const struct ieee80211_node *, struct ieee80211_rc_info *);
 static void	rssadapt_sysctlattach(struct ieee80211vap *,
 			struct sysctl_ctx_list *, struct sysctl_oid *);
 
@@ -311,10 +310,11 @@ rssadapt_raise_rate(struct ieee80211_rssadapt_node *ra, int pktlen, int rssi)
 
 static void
 rssadapt_tx_complete(const struct ieee80211vap *vap,
-    const struct ieee80211_node *ni, int success, void *arg1, void *arg2)
+    const struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 {
 	struct ieee80211_rssadapt_node *ra = ni->ni_rctls;
-	int pktlen = *(int *)arg1, rssi = *(int *)arg2;
+	/*int pktlen = *(int *)arg1, rssi = *(int *)arg2;*/
+	int pktlen = 0, rssi = 0, success = 0; /* just make it compiled. qcc */
 
 	if (success) {
 		ra->ra_nok++;

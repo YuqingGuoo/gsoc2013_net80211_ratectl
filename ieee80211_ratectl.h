@@ -23,7 +23,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 256824 2013-09-02 07:43:31Z ccqin $
+ * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 257067 2013-09-07 09:37:45Z ccqin $
  */
 #ifndef _NET80211_IEEE80211_RATECTL_H_
 #define _NET80211_IEEE80211_RATECTL_H_
@@ -95,7 +95,7 @@ struct ieee80211_rc_info {
 /* ieee80211_rc_info flags */
 #define	IEEE80211_RATECTL_INFO_SP		0x01	/* short preamble */
 
-#define IEEE80211_RATECTL_INFO(_m) ((struct ieee80211_rc_info *)(_m)->m_ccb)
+#define NET80211_TAG_RATECTL   1   /* net80211 ratectl state */
 
 /*
  * net80211 ratectl statistics. 
@@ -161,6 +161,8 @@ ieee80211_ratectl_node_init(struct ieee80211_node *ni)
 	const struct ieee80211vap *vap = ni->ni_vap;
 
 	vap->iv_rate->ir_node_init(ni);
+	IEEE80211_DPRINTF(ni->ni_vap, IEEE80211_MSG_RATECTL,
+			"%s: net80211 ratectl node inited.\n", __func__);
 }
 
 static void __inline
@@ -262,9 +264,18 @@ ieee80211_ratectl_node_is11n(const struct ieee80211_node *ni)
 __inline static const struct ieee80211_rateset *
 ieee80211_ratectl_get_rateset(const struct ieee80211_node *ni)
 {
-	return ieee80211_ratectl_node_is11n(ni) ? 
-				(struct ieee80211_rateset *) &ni->ni_htrates :
-				&ni->ni_rates;
+	const struct ieee80211_rateset *rs = NULL;
+	/* 11n or not? Pick the right rateset */
+	if (ieee80211_ratectl_node_is11n(ni)) {
+		IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
+				"%s: 11n node", __func__);
+		rs = (struct ieee80211_rateset *) &ni->ni_htrates;
+	} else {
+		IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
+			    "%s: non-11n node", __func__);
+		rs = &ni->ni_rates;
+	}
+	return rs;
 }
 
 static void __inline
