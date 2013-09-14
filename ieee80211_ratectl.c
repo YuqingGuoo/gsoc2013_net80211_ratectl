@@ -25,7 +25,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 257067 2013-09-07 09:37:45Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.c 257290 2013-09-14 03:39:02Z ccqin $");
 
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -100,12 +100,33 @@ ieee80211_ratectl_unregister(int type)
 	ratectls[type] = NULL;
 }
 
+static int
+ratectl_sysctl_stats(SYSCTL_HANDLER_ARGS)
+{
+	struct ieee80211vap *vap = arg1;
+	int error, v;
+
+	v = 0;
+	error = sysctl_handle_int(oidp, &v, 0, req);
+	if (error || !req->newptr)
+		return error;
+
+	ieee80211_ratectl_stats(vap);
+	return 0;
+}
+
 void
 ieee80211_ratectl_init(struct ieee80211vap *vap, uint32_t capabilities)
 {
 	if (vap->iv_rate == ratectls[IEEE80211_RATECTL_NONE])
 		ieee80211_ratectl_set(vap, IEEE80211_RATECTL_AMRR);
 	vap->iv_rate->ir_init(vap, capabilities);
+
+	SYSCTL_ADD_PROC(vap->iv_sysctl, SYSCTL_CHILDREN(vap->iv_oid), 
+			OID_AUTO, "ratectl_stats", CTLTYPE_INT | CTLFLAG_RW, 
+			vap, 0, ratectl_sysctl_stats, "I", 
+			"per-vap net80211 ratectl statistics");
+
 	IEEE80211_DPRINTF(vap, IEEE80211_MSG_RATECTL,
 	    "%s: ratectl initialized. caps=0x%08x\n",
 	    __func__, capabilities);
@@ -229,5 +250,9 @@ ieee80211_ratectl_complete_rcflags(struct ieee80211_node *ni,
 		rc[i].tx_power_cap = ieee80211_get_node_txpower(ni);
 		
 	}
+	IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
+	    "%s: flags: rc[0]:0x%08x, rc[1]:0x%08x, "
+		"rc[2]:0x%08x, rc[3]:0x%08x\n", __func__, 
+		rc[0].flags, rc[1].flags, rc[2].flags, rc[3].flags);
 }
 

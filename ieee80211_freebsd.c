@@ -24,7 +24,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_freebsd.c 257070 2013-09-07 10:29:22Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_freebsd.c 257290 2013-09-14 03:39:02Z ccqin $");
 
 /*
  * IEEE 802.11 support (FreeBSD-specific code)
@@ -262,7 +262,7 @@ ieee80211_sysctl_vattach(struct ieee80211vap *vap)
 		"driver_caps", CTLFLAG_RW, &vap->iv_caps, 0,
 		"driver capabilities");
 #ifdef IEEE80211_DEBUG
-	ieee80211_debug |= IEEE80211_MSG_RATECTL;
+	ieee80211_debug |= (IEEE80211_MSG_RATECTL|IEEE80211_MSG_NODE|IEEE80211_MSG_SCAN);
 	vap->iv_debug = ieee80211_debug;
 	if_printf(ifp, "%s: iv_debug=0x%08x\n", __func__, vap->iv_debug);
 	SYSCTL_ADD_UINT(ctx, SYSCTL_CHILDREN(oid), OID_AUTO,

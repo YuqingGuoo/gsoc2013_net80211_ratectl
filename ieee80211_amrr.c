@@ -19,7 +19,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 257067 2013-09-07 09:37:45Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 257290 2013-09-14 03:39:02Z ccqin $");
 
 /*-
  * Naive implementation of the Adaptive Multi Rate Retry algorithm:
@@ -68,8 +68,9 @@ static int	amrr_rate(struct ieee80211_node *, void *, uint32_t);
 static void	amrr_rates(struct ieee80211_node *, struct ieee80211_rc_info *);
 static void	amrr_tx_complete(const struct ieee80211vap *,
     			const struct ieee80211_node *, struct ieee80211_rc_info *);
-static void	amrr_tx_update(const struct ieee80211vap *vap,
+static void	amrr_tx_update(const struct ieee80211vap *,
 			const struct ieee80211_node *, void *, void *, void *);
+static void	amrr_stats(const struct ieee80211vap *);
 static void	amrr_sysctlattach(struct ieee80211vap *,
 			struct sysctl_ctx_list *, struct sysctl_oid *);
 
@@ -89,6 +90,7 @@ static const struct ieee80211_ratectl amrr = {
 	.ir_tx_complete	= amrr_tx_complete,
 	.ir_tx_update	= amrr_tx_update,
 	.ir_setinterval	= amrr_setinterval,
+	.ir_stats	= amrr_stats,
 };
 IEEE80211_RATECTL_MODULE(amrr, 1);
 IEEE80211_RATECTL_ALG(amrr, IEEE80211_RATECTL_AMRR, amrr);
@@ -315,7 +317,10 @@ amrr_rates(struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 
 	rs = ieee80211_ratectl_get_rateset(ni);
 	rt = ieee80211_get_ratetable(ni->ni_ic->ic_curchan);
-
+	IEEE80211_DPRINTF(ni->ni_vap, IEEE80211_MSG_RATECTL, 
+	    "%s: channel flags: 0x%08x\n", __func__, 
+		ni->ni_ic->ic_curchan->ic_flags); 
+	
 	rix = amrr_rate(ni, NULL, 0);
 
 	rc[0].flags = rc[1].flags = rc[2].flags = rc[3].flags = 0;
@@ -333,20 +338,20 @@ amrr_rates(struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 				code = ieee80211_ratectl_node_is11n(ni)? MCS(rix) : RATE(rix);
 				rc[1].rix = rt->rateCodeToIndex[code];
 			} else {
-				rc[1].rix = 0;
+				rc[1].rix = rt->rateCodeToIndex[0];
 			}
 			if (--rix >= 0) {
 				code = ieee80211_ratectl_node_is11n(ni)? MCS(rix) : RATE(rix);
 				rc[2].rix = rt->rateCodeToIndex[code];
 			} else {
-				rc[2].rix = 0;
+				rc[2].rix = rt->rateCodeToIndex[0];
 			}
-			if (rix > 0) {
+			if (rix >= 0) {
 				/* NB: only do this if we didn't already do it above */
 				code = ieee80211_ratectl_node_is11n(ni)? MCS(0) : RATE(0);
 				rc[3].rix = rt->rateCodeToIndex[code];
 			} else {
-				rc[3].rix = 0;
+				rc[3].rix = rt->rateCodeToIndex[0];
 			}
 		} else {
 			rc[0].tries = IEEE80211_RATECTL_TXMAXTRY;
@@ -354,9 +359,9 @@ amrr_rates(struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 			rc[1].tries = 0;
 			rc[2].tries = 0;
 			rc[3].tries = 0;
-			rc[1].rix = 0;
-			rc[2].rix = 0;
-			rc[3].rix = 0;
+			rc[1].rix = rt->rateCodeToIndex[0];
+			rc[2].rix = rt->rateCodeToIndex[0];
+			rc[3].rix = rt->rateCodeToIndex[0];
 		}
 	}
 	IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
@@ -413,6 +418,16 @@ amrr_tx_update(const struct ieee80211vap *vap, const struct ieee80211_node *ni,
 	IEEE80211_NOTE(vap, IEEE80211_MSG_RATECTL, ni,
 	    "%s: AMRR tx update. txcnt=%d success=%d retrycnt=%d\n",
 	    __func__, txcnt, success, retrycnt);
+}
+
+static void
+amrr_stats(const struct ieee80211vap *vap)
+{
+	struct ieee80211_rc_stat * irs = IEEE80211_RATECTL_STAT(vap);
+	printf("tx count: %d (ok count: %d, fail count: %d)\n"
+			"retry count: %d (short retry: %d, long retry: %d)\n",
+			irs->irs_txcnt, irs->irs_txcnt - irs->irs_failcnt, irs->irs_failcnt,
+			irs->irs_retrycnt, irs->irs_shortretry, irs->irs_longretry);
 }
 
 static int

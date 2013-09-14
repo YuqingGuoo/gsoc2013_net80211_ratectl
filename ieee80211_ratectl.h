@@ -23,7 +23,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 257067 2013-09-07 09:37:45Z ccqin $
+ * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 257290 2013-09-14 03:39:02Z ccqin $
  */
 #ifndef _NET80211_IEEE80211_RATECTL_H_
 #define _NET80211_IEEE80211_RATECTL_H_
@@ -79,21 +79,23 @@ struct ieee80211_rc_series {
 struct ieee80211_rc_info {
 	struct ieee80211_rc_series iri_rc[IEEE80211_RATECTL_NUM];
 	uint32_t iri_framelen;
-	uint16_t iri_flags;		/* for now, just records short preamble */
+	uint16_t iri_flags;			/* See below */
+	uint16_t iri_maxaggrsize;	/* Maximum aggregate size */
 
 	/* TX info */
-	uint8_t iri_txcnt;		/* TX count */
-	uint8_t iri_okcnt;		/* TX ok with or without retry */
-	uint8_t iri_failcnt;	/* TX retry-fail count */
-	uint8_t iri_retrycnt;	/* TX retry count */
+	uint8_t iri_txcnt;			/* TX count */
+	uint8_t iri_failcnt;		/* TX retry-fail count */
+	uint8_t iri_okcnt;			/* TX ok with or without retry */
+	uint8_t iri_retrycnt;		/* TX retry count */
 	uint8_t iri_shortretry;
 	uint8_t iri_longretry;
 	uint8_t iri_finaltsi;
-	uint8_t iri_txrate;		/* hw tx rate */
+	uint8_t iri_txrate;			/* HW tx rate */
 };
 
 /* ieee80211_rc_info flags */
 #define	IEEE80211_RATECTL_INFO_SP		0x01	/* short preamble */
+#define	IEEE80211_RATECTL_INFO_AGGR		0x02	/* aggregation scenario */
 
 #define NET80211_TAG_RATECTL   1   /* net80211 ratectl state */
 
@@ -138,6 +140,7 @@ struct ieee80211_ratectl {
 	    			const struct ieee80211_node *,
 	    			void *, void *, void *);
 	void	(*ir_setinterval)(const struct ieee80211vap *, int);
+	void	(*ir_stats)(const struct ieee80211vap *);
 };
 
 void	ieee80211_ratectl_register(int, const struct ieee80211_ratectl *);
@@ -161,7 +164,7 @@ ieee80211_ratectl_node_init(struct ieee80211_node *ni)
 	const struct ieee80211vap *vap = ni->ni_vap;
 
 	vap->iv_rate->ir_node_init(ni);
-	IEEE80211_DPRINTF(ni->ni_vap, IEEE80211_MSG_RATECTL,
+	IEEE80211_DPRINTF(vap, IEEE80211_MSG_RATECTL,
 			"%s: net80211 ratectl node inited.\n", __func__);
 }
 
@@ -171,6 +174,8 @@ ieee80211_ratectl_node_deinit(struct ieee80211_node *ni)
 	const struct ieee80211vap *vap = ni->ni_vap;
 
 	vap->iv_rate->ir_node_deinit(ni);
+	IEEE80211_DPRINTF(vap, IEEE80211_MSG_RATECTL,
+			"%s: net80211 ratectl node deinited.\n", __func__);
 }
 
 static int __inline
@@ -185,6 +190,13 @@ static void __inline
 ieee80211_ratectl_rates(struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 {
 	const struct ieee80211vap *vap = ni->ni_vap;
+
+	if (rc_info->iri_flags & IEEE80211_RATECTL_INFO_AGGR) 
+		rc_info->iri_framelen = 0;
+
+	IEEE80211_DPRINTF(vap, IEEE80211_MSG_RATECTL,
+			"%s: find rate sets for %saggregation scenario.\n", __func__, 
+			(rc_info->iri_flags & IEEE80211_RATECTL_INFO_AGGR)? "" : "non-");
 
 	vap->iv_rate->ir_rates(ni, rc_info);
 	ieee80211_ratectl_complete_rcflags(ni, rc_info);
@@ -212,6 +224,16 @@ ieee80211_ratectl_setinterval(const struct ieee80211vap *vap, int msecs)
 	if (vap->iv_rate->ir_setinterval == NULL)
 		return;
 	vap->iv_rate->ir_setinterval(vap, msecs);
+}
+
+static void __inline
+ieee80211_ratectl_stats(const struct ieee80211vap *vap)
+{
+	printf("\n[%s]: net80211 ratectl statistics (%s)\n", 
+			vap->iv_ifp->if_xname, vap->iv_rate->ir_name);
+	if (vap->iv_rate->ir_stats == NULL)
+		return;
+	vap->iv_rate->ir_stats(vap);
 }
 
 static int __inline
