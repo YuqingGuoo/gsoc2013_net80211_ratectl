@@ -23,7 +23,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 257290 2013-09-14 03:39:02Z ccqin $
+ * $FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl.h 257356 2013-09-15 03:47:06Z ccqin $
  */
 #ifndef _NET80211_IEEE80211_RATECTL_H_
 #define _NET80211_IEEE80211_RATECTL_H_
@@ -327,6 +327,33 @@ ieee80211_ratectl_rc_info_set(struct ieee80211_rc_info *rc_info,
 	rc_info->iri_retrycnt = shortretry + longretry;
 	rc_info->iri_finaltsi = finaltsi;
 	rc_info->iri_txrate = txrate;
+}
+
+__inline static struct ieee80211_rc_info *
+ieee80211_ratectl_rc_info_get(struct ieee80211_node *ni,
+		struct mbuf *m)
+{
+	struct m_tag *mtag;
+
+    mtag = m_tag_locate(m, MTAG_ABI_NET80211, 
+			NET80211_TAG_RATECTL, NULL);
+
+	IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
+			"%s: %sratectl mbuf tag found.\n", __func__, 
+			(NULL == mtag? "no ":""));
+again:
+	if (NULL == mtag) {
+		mtag = m_tag_alloc(MTAG_ABI_NET80211, NET80211_TAG_RATECTL,
+				sizeof(struct ieee80211_rc_info), M_NOWAIT);
+		if (NULL == mtag) {
+			IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_RATECTL, ni,
+					"%s: can't alloc mbuf tag for ratectl.\n", __func__);
+			goto again;
+		}
+		bzero(mtag + 1, mtag->m_tag_len);
+		m_tag_prepend(m, mtag);
+	}
+	return (struct ieee80211_rc_info*)(mtag + 1);
 }
 
 #endif

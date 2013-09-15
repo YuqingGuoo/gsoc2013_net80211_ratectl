@@ -25,7 +25,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_node.c 257290 2013-09-14 03:39:02Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_node.c 257356 2013-09-15 03:47:06Z ccqin $");
 
 #include "opt_wlan.h"
 
@@ -1074,8 +1074,6 @@ node_free(struct ieee80211_node *ni)
 	ieee80211_ies_cleanup(&ni->ni_ies);
 	ieee80211_psq_cleanup(&ni->ni_psq);
 	free(ni, M_80211_NODE);
-	IEEE80211_DPRINTF(ni->ni_vap, IEEE80211_MSG_RATECTL,
-			"%s: after free(ni, M_80211_NODE).\n", __func__);
 }
 
 static void
@@ -1735,7 +1733,7 @@ _ieee80211_free_node(struct ieee80211_node *ni)
 	 * to use ni_ic below to reclaim resources.
 	 */
 #if 0
-	IEEE80211_DPRINTF(ni->ni_vap, IEEE80211_MSG_NODE,
+	IEEE80211_DPRINTF(vap, IEEE80211_MSG_NODE,
 		"%s %p<%s> in %s table\n", __func__, ni,
 		ether_sprintf(ni->ni_macaddr),
 		nt != NULL ? nt->nt_name : "<gone>");
