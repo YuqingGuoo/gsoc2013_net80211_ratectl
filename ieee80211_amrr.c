@@ -19,7 +19,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 257290 2013-09-14 03:39:02Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 257398 2013-09-16 08:08:52Z ccqin $");
 
 /*-
  * Naive implementation of the Adaptive Multi Rate Retry algorithm:
@@ -57,13 +57,10 @@ __FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_amrr.c 257290 2013
 #define is_enough(amn)		\
 	((amn)->amn_txcnt > 10)
 
-static void	amrr_setinterval(const struct ieee80211vap *, int);
 static void	amrr_init(struct ieee80211vap *, uint32_t);
 static void	amrr_deinit(struct ieee80211vap *);
 static void	amrr_node_init(struct ieee80211_node *);
 static void	amrr_node_deinit(struct ieee80211_node *);
-static int	amrr_update(struct ieee80211_amrr *,
-    			struct ieee80211_amrr_node *, struct ieee80211_node *);
 static int	amrr_rate(struct ieee80211_node *, void *, uint32_t);
 static void	amrr_rates(struct ieee80211_node *, struct ieee80211_rc_info *);
 static void	amrr_tx_complete(const struct ieee80211vap *,
@@ -71,6 +68,7 @@ static void	amrr_tx_complete(const struct ieee80211vap *,
 static void	amrr_tx_update(const struct ieee80211vap *,
 			const struct ieee80211_node *, void *, void *, void *);
 static void	amrr_stats(const struct ieee80211vap *);
+static void	amrr_setinterval(const struct ieee80211vap *, int);
 static void	amrr_sysctlattach(struct ieee80211vap *,
 			struct sysctl_ctx_list *, struct sysctl_oid *);
 

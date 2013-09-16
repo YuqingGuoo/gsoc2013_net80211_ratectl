@@ -24,7 +24,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl_none.c 256830 2013-09-02 09:51:41Z ccqin $");
+__FBSDID("$FreeBSD: soc2013/ccqin/head/sys/net80211/ieee80211_ratectl_none.c 257398 2013-09-16 08:08:52Z ccqin $");
 
 #include "opt_wlan.h"
 
@@ -112,6 +112,11 @@ none_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unused)
 }
 
 static void
+none_rates(struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
+{
+}
+
+static void
 none_tx_complete(const struct ieee80211vap *vap,
     const struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 {
@@ -128,6 +133,16 @@ none_setinterval(const struct ieee80211vap *vap, int msecs)
 {
 }
 
+static void
+none_stats(const struct ieee80211vap *vap)
+{
+	struct ieee80211_rc_stat * irs = IEEE80211_RATECTL_STAT(vap);
+	printf("tx count: %d (ok count: %d, fail count: %d)\n"
+			"retry count: %d (short retry: %d, long retry: %d)\n",
+			irs->irs_txcnt, irs->irs_txcnt - irs->irs_failcnt, irs->irs_failcnt,
+			irs->irs_retrycnt, irs->irs_shortretry, irs->irs_longretry);
+	/* ... */
+}
 /* number of references from net80211 layer */
 static	int nrefs = 0;
 
@@ -140,9 +155,11 @@ static const struct ieee80211_ratectl none = {
 	.ir_node_init	= none_node_init,
 	.ir_node_deinit	= none_node_deinit,
 	.ir_rate	= none_rate,
+	.ir_rates	= none_rates,
 	.ir_tx_complete	= none_tx_complete,
 	.ir_tx_update	= none_tx_update,
 	.ir_setinterval	= none_setinterval,
+	.ir_stats	= none_stats,
 };
 IEEE80211_RATECTL_MODULE(ratectl_none, 1);
 IEEE80211_RATECTL_ALG(none, IEEE80211_RATECTL_NONE, none);

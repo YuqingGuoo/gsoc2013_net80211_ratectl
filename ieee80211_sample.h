@@ -143,25 +143,28 @@ size_to_bin(int size)
 	return NUM_PACKET_SIZE_BINS-1;
 }
 
-static uint32_t sample_pkt_txtime(const struct ieee80211_rate_table *rt,
+static uint32_t sample_pkt_tx_time(const struct ieee80211_rate_table *rt,
 	uint32_t frameLen, uint16_t rateix, int isht40, int isShortPreamble)
 {
-	uint8_t rc;
-    int numStreams;
+	uint8_t rate = rt->info[rateix].dot11Rate;
+	uint32_t tx_time = 0;
 
-    rc = rt->info[rateix].rateCode;
+	if (rt->info[rateix].phy == IEEE80211_T_HT) {
+    	int numStreams;
+    	/* 11n frame - extract out the number of spatial streams */
+    	rate |= IEEE80211_RATE_MCS;
+		numStreams = HT_RC_2_STREAMS(rate);
+    	KASSERT(numStreams > 0 && numStreams <= 4,
+    	    ("number of spatial streams needs to be 1..3: MCS rate 0x%x!",
+    	    rateix));
+    	tx_time = ieee80211_compute_duration_ht(frameLen, rate, numStreams, isht40, isShortPreamble);
+	} else {
+    	/* Legacy rate? Return the old way */
+    	rate &= IEEE80211_RATE_VAL;
+    	tx_time = ieee80211_compute_duration(rt, frameLen, rate, isShortPreamble);
+	}
 
-    /* Legacy rate? Return the old way */
-    if (! IS_HT_RATE(rc))
-    	return ieee80211_compute_duration(rt, frameLen, rateix, isShortPreamble);
-
-    /* 11n frame - extract out the number of spatial streams */
-    numStreams = HT_RC_2_STREAMS(rc);
-    KASSERT(numStreams > 0 && numStreams <= 4,
-        ("number of spatial streams needs to be 1..3: MCS rate 0x%x!",
-        rateix));
-
-    return ieee80211_compute_duration_ht(frameLen, rc, numStreams, isht40, isShortPreamble);
+	return tx_time;
 }
 
 #define WIFI_CW_MIN 31
@@ -183,9 +186,9 @@ static unsigned calc_usecs_unicast_packet(const struct ieee80211vap *vap,
 	int rts, cts;
 	int tt, x, cw, cix;
 
-	int tt = 0;
-	int x = 0;
-	int cw = WIFI_CW_MIN;
+	tt = 0;
+	x = 0;
+	cw = WIFI_CW_MIN;
 
 	KASSERT(rt != NULL, ("no rate table, mode %u", curmode));
 
@@ -194,7 +197,7 @@ static unsigned calc_usecs_unicast_packet(const struct ieee80211vap *vap,
 		       rix, rt->rateCount, curmode);
 		return 0;
 	}
-	cix = rt->info[rix].controlRate;
+	cix = rt->info[rix].ctlRateIndex;
 	/* 
 	 * XXX getting mac/phy level timings should be fixed for turbo
 	 * rates, and there is probably a way to get this from the
@@ -242,7 +245,7 @@ static unsigned calc_usecs_unicast_packet(const struct ieee80211vap *vap,
     	if (0xff == protrix)
     		protrix = 0;
 
-		cix = rt->info[protrix].controlRate;
+		cix = rt->info[protrix].ctlRateIndex;
 	}
 
 	if (0 /*length > ic->ic_rtsthreshold */) {
@@ -250,7 +253,6 @@ static unsigned calc_usecs_unicast_packet(const struct ieee80211vap *vap,
 	}
 
 	if (rts || cts) {
-		int ctsrate;
 		int ctsduration = 0;
 
 		/* NB: this is intentionally not a runtime check */
@@ -258,12 +260,11 @@ static unsigned calc_usecs_unicast_packet(const struct ieee80211vap *vap,
 		    ("bogus cix %d, max %u, mode %u\n", cix, rt->rateCount,
 		     curmode));
 
-		ctsrate = rt->info[cix].rateCode | rt->info[cix].shortPreamble;
 		if (rts)		/* SIFS + CTS */
 			ctsduration += rt->info[cix].spAckDuration;
 
 		/* XXX assumes short preamble */
-		ctsduration += sample_pkt_txtime(rt, length, rix, is_ht40, 0);
+		ctsduration += sample_pkt_tx_time(rt, length, rix, is_ht40, 0);
 
 		if (cts)	/* SIFS + ACK */
 			ctsduration += rt->info[cix].spAckDuration;
@@ -273,7 +274,7 @@ static unsigned calc_usecs_unicast_packet(const struct ieee80211vap *vap,
 	tt += t_difs;
 
 	/* XXX assumes short preamble */
-	tt += (long_retries+1)*sample_pkt_txtime(rt, length, rix, is_ht40, 0);
+	tt += (long_retries+1)*sample_pkt_tx_time(rt, length, rix, is_ht40, 0);
 
 	tt += (long_retries+1)*(t_sifs + rt->info[rix].spAckDuration);
 

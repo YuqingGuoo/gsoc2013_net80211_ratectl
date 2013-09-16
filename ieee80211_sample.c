@@ -38,6 +38,7 @@
 
 #include <net/if.h>
 #include <net/if_media.h>
+#include <net/ethernet.h>
 
 #ifdef INET
 #include <netinet/in.h>
@@ -47,20 +48,25 @@
 #include <net80211/ieee80211_var.h>
 #include <net80211/ieee80211_ht.h>
 #include <net80211/ieee80211_ratectl.h>
-#include <net80211/ieee80211_rc_sample.h>
-#include <net80211/ieee80211_rc_sample_txsched.h>
+#include <net80211/ieee80211_sample.h>
+#include <net80211/ieee80211_sample_txsched.h>
 
 static void	sample_init(struct ieee80211vap *, uint32_t);
 static void	sample_deinit(struct ieee80211vap *);
 static void	sample_node_init(struct ieee80211_node *);
 static void	sample_node_deinit(struct ieee80211_node *);
 static int	sample_rate(struct ieee80211_node *, void *, uint32_t);
+static void	sample_rates(struct ieee80211_node *, struct ieee80211_rc_info *);
 static void	sample_tx_complete(const struct ieee80211vap *,
-    			const struct ieee80211_node *, int, 
-			void *, void *);
+    			const struct ieee80211_node *, struct ieee80211_rc_info *);
 static void	sample_tx_update(const struct ieee80211vap *vap,
 			const struct ieee80211_node *, void *, void *, void *);
+static void	sample_stats(const struct ieee80211vap *);
 static void	sample_setinterval(const struct ieee80211vap *, int);
+
+static void	sample_sysctlattach(struct ieee80211vap *,
+			struct sysctl_ctx_list *, struct sysctl_oid *);
+static void	sample_update_static_rix(struct ieee80211_node *);
 
 /* number of references from net80211 layer */
 static	int nrefs = 0;
@@ -78,6 +84,7 @@ static const struct ieee80211_ratectl sample = {
 	.ir_tx_complete	= sample_tx_complete,
 	.ir_tx_update	= sample_tx_update,
 	.ir_setinterval	= sample_setinterval,
+	.ir_stats	= sample_stats,
 };
 IEEE80211_RATECTL_MODULE(sample, 1);
 IEEE80211_RATECTL_ALG(sample, IEEE80211_RATECTL_SAMPLE, sample);
@@ -136,10 +143,12 @@ sample_node_init(struct ieee80211_node *ni)
 #define	RATE(_ix)	(ni->ni_rates.rs_rates[(_ix)] & IEEE80211_RATE_VAL)
 #define	DOT11RATE(_ix)	(rt->info[(_ix)].dot11Rate & IEEE80211_RATE_VAL)
 #define	MCS(_ix)	(ni->ni_htrates.rs_rates[_ix] | IEEE80211_RATE_MCS)
+	
 	struct ieee80211vap *vap = ni->ni_vap;
 	struct ieee80211_sample *sample = vap->iv_rs;
 	struct ieee80211_sample_node *san = NULL;
-	const struct ieee80211_rate_table *rt = ieee80211_get_ratetable(vap->iv_ic->ic_curchan);
+
+	const struct ieee80211_rate_table *rt = NULL;
 	enum ieee80211_phymode curmode = ieee80211_chan2mode(vap->iv_ic->ic_curchan);
 	int x, y, rix;
 
@@ -156,6 +165,7 @@ sample_node_init(struct ieee80211_node *ni)
 	
 	san->san_sample = sample;
 
+	rt = ieee80211_get_ratetable(vap->iv_ic->ic_curchan);
 	KASSERT(rt != NULL, ("no rate table, mode %u", curmode));
 
 	san->sched = mrr_schedules[curmode];
@@ -177,9 +187,6 @@ sample_node_init(struct ieee80211_node *ni)
 			rix = rt->rateCodeToIndex[MCS(x)];
 			if (rix == 0xff)
 				continue;
-			/* skip rates marked broken by hal */
-			if (!rt->info[rix].valid)
-				continue;
 			KASSERT(rix < SAMPLE_MAXRATES,
 			    ("mcs %u has rix %d", MCS(x), rix));
 			san->ratemask |= (uint64_t) 1<<rix;
@@ -190,9 +197,6 @@ sample_node_init(struct ieee80211_node *ni)
 	for (x = 0; x < ni->ni_rates.rs_nrates; x++) {
 		rix = rt->rateCodeToIndex[RATE(x)];
 		if (rix == 0xff)
-			continue;
-		/* skip rates marked broken by hal */
-		if (!rt->info[rix].valid)
 			continue;
 		KASSERT(rix < SAMPLE_MAXRATES,
 		    ("rate %u has rix %d", RATE(x), rix));
@@ -248,7 +252,7 @@ sample_node_deinit(struct ieee80211_node *ni)
 }
 
 static int
-dot11rate(const ieee80211_rate_table *rt, int rix)
+dot11rate(const struct ieee80211_rate_table *rt, int rix)
 {
 	if (rix < 0)
 		return -1;
@@ -257,7 +261,7 @@ dot11rate(const ieee80211_rate_table *rt, int rix)
 }
 
 static const char *
-dot11rate_label(const ieee80211_rate_table *rt, int rix)
+dot11rate_label(const struct ieee80211_rate_table *rt, int rix)
 {
 	if (rix < 0)
 		return "";
@@ -354,8 +358,8 @@ pick_best_rate(const struct ieee80211_node *ni, const struct ieee80211_rate_tabl
  * Pick a good "random" bit-rate to sample other than the current one.
  */
 static __inline int
-pick_sample_rate(const struct ieee80211_node *ni, const ieee80211_rate_table *rt, 
-	int size_bin)
+pick_sample_rate(const struct ieee80211_node *ni, 
+		const struct ieee80211_rate_table *rt, int size_bin)
 {
 #define	DOT11RATE(ix)	(rt->info[ix].dot11Rate & IEEE80211_RATE_VAL)
 #define	MCS(ix)		(rt->info[ix].dot11Rate | IEEE80211_RATE_MCS)
@@ -624,7 +628,7 @@ sample_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unuse
 		sample->sample_rate/100)) {
 		rix = pick_sample_rate(ni, rt, size_bin);
 		IEEE80211_NOTE(vap, IEEE80211_MSG_RATECTL,
-		     &ni, "att %d sample_tt %d size %u sample rate %d %s current rate %d %s",
+		     ni, "att %d sample_tt %d size %u sample rate %d %s current rate %d %s",
 		     average_tx_time,
 		     san->sample_tt[size_bin],
 		     bin_to_size(size_bin),
@@ -650,13 +654,13 @@ sample_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unuse
 		} else if (san->packets_sent[size_bin] < 20) {
 			/* let the bit-rate switch quickly during the first few packets */
 			IEEE80211_NOTE(vap,
-			    IEEE80211_MSG_RATECTL, &ni,
+			    IEEE80211_MSG_RATECTL, ni,
 			    "%s: switching quickly..", __func__);
 			change_rates = 1;
 		} else if (ticks - sample->sample_min_switch > san->ticks_since_switch[size_bin]) {
 			/* min_switch seconds have gone by */
 			IEEE80211_NOTE(vap,
-			    IEEE80211_MSG_RATECTL, &ni,
+			    IEEE80211_MSG_RATECTL, ni,
 			    "%s: min_switch %d > ticks_since_switch %d..",
 			    __func__, ticks - sample->sample_min_switch, san->ticks_since_switch[size_bin]);
 			change_rates = 1;
@@ -664,7 +668,7 @@ sample_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unuse
 		    (2*average_tx_time < san->stats[size_bin][san->current_rix[size_bin]].average_tx_time)) {
 			/* the current bit-rate is twice as slow as the best one */
 			IEEE80211_NOTE(vap,
-			    IEEE80211_MSG_RATECTL, &ni,
+			    IEEE80211_MSG_RATECTL, ni,
 			    "%s: 2x att (= %d) < cur_rix att %d",
 			    __func__,
 			    2 * average_tx_time, san->stats[size_bin][san->current_rix[size_bin]].average_tx_time);
@@ -686,7 +690,7 @@ sample_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unuse
 			if ((MCS(best_rix) > MCS(cur_rix)) &&
 			    (average_tx_time * 8) <= (cur_att * 10)) {
 				IEEE80211_NOTE(vap,
-				    IEEE80211_MSG_RATECTL, &ni,
+				    IEEE80211_MSG_RATECTL, ni,
 				    "%s: HT: best_rix 0x%d > cur_rix 0x%x, average_tx_time %d, cur_att %d",
 				    __func__,
 				    MCS(best_rix), MCS(cur_rix), average_tx_time, cur_att);
@@ -700,7 +704,7 @@ sample_rate(struct ieee80211_node *ni, void *arg __unused, uint32_t iarg __unuse
 			if (best_rix != san->current_rix[size_bin]) {
 				IEEE80211_NOTE(vap,
 				    IEEE80211_MSG_RATECTL,
-				    &ni,
+				    ni,
 "%s: size %d switch rate %d (%d/%d) -> %d (%d/%d) after %d packets mrr %d",
 				    __func__,
 				    bin_to_size(size_bin),
@@ -794,7 +798,7 @@ update_stats(const struct ieee80211vap *vap,
 	const int size_bin = size_to_bin(frame_size);
 	const int size = bin_to_size(size_bin);
 
-	int is_ht40 = ieee80211_ratectl_hascap_cw40(vap, ni);
+	int is_ht40 = ieee80211_ratectl_hascap_cw40(ni);
 	int tt, tries_so_far;
 	int pct;
 
@@ -827,7 +831,7 @@ update_stats(const struct ieee80211vap *vap,
 			MIN(tries3 + tries_so_far, tries) - tries_so_far - 1, is_ht40);
 	}
 
-	if (san->stats[size_bin][rix0].total_packets < sample->sanple_smoothing_minpackets) {
+	if (san->stats[size_bin][rix0].total_packets < sample->sample_smoothing_minpackets) {
 		/* just average the first few packets */
 		int avg_tx = san->stats[size_bin][rix0].average_tx_time;
 		int packets = san->stats[size_bin][rix0].total_packets;
@@ -835,8 +839,8 @@ update_stats(const struct ieee80211vap *vap,
 	} else {
 		/* use a ewma */
 		san->stats[size_bin][rix0].average_tx_time = 
-			((san->stats[size_bin][rix0].average_tx_time * sample->sanple_smoothing_rate) + 
-			 (tt * (100 - sample->sanple_smoothing_rate))) / 100;
+			((san->stats[size_bin][rix0].average_tx_time * sample->sample_smoothing_rate) + 
+			 (tt * (100 - sample->sample_smoothing_rate))) / 100;
 	}
 	
 	/*
@@ -863,7 +867,7 @@ update_stats(const struct ieee80211vap *vap,
 	pct = ((nframes - nbad) * 1000) / nframes;
 
 	if (san->stats[size_bin][rix0].total_packets <
-	    sample->sanple_smoothing_minpackets) {
+	    sample->sample_smoothing_minpackets) {
 		/* just average the first few packets */
 		int a_pct = (san->stats[size_bin][rix0].packets_acked * 1000) /
 		    (san->stats[size_bin][rix0].total_packets);
@@ -871,8 +875,8 @@ update_stats(const struct ieee80211vap *vap,
 	} else {
 		/* use a ewma */
 		san->stats[size_bin][rix0].ewma_pct =
-			((san->stats[size_bin][rix0].ewma_pct * sample->sanple_smoothing_rate) +
-			 (pct * (100 - sample->sanple_smoothing_rate))) / 100;
+			((san->stats[size_bin][rix0].ewma_pct * sample->sample_smoothing_rate) +
+			 (pct * (100 - sample->sample_smoothing_rate))) / 100;
 	}
 
 	if (rix0 == san->current_sample_rix[size_bin]) {
@@ -883,25 +887,22 @@ update_stats(const struct ieee80211vap *vap,
 
 static void
 sample_tx_complete(const struct ieee80211vap *vap,
-    const struct ieee80211_node *ni, int ok,
-    void *arg1, void *arg2)
+    const struct ieee80211_node *ni, struct ieee80211_rc_info *rc_info)
 {
 	struct ieee80211_sample_node *san = ni->ni_rctls;
-	const struct ieee80211_rate_table *rt = ieee80211_get_ratetable(vap->iv_ic->ic_curchan);
-
-	/* XXX need to change arg2 to pointer of ieee80211_rc_info */
-	struct ieee80211_rc_info *rc_info = (struct ieee80211_rc_info*)arg2;
-
+	const struct ieee80211_rate_table *rt = NULL;
+	struct ieee80211_rc_series *rc = NULL;
 	int final_rix, short_tries, long_tries;
 	int nframes, nbad;
 	int frame_size, mrr;
 
+	rt = ieee80211_get_ratetable(vap->iv_ic->ic_curchan);
+	rc = rc_info->iri_rc;	
 	/* update per vap statistics */
 	ieee80211_ratectl_update_stat(vap, rc_info);
 
 	final_rix = rt->rateCodeToIndex[rc_info->iri_txrate];
 	short_tries = rc_info->iri_shortretry;
-	/* XXX why plus 1 here? */
 	long_tries = rc_info->iri_longretry + 1;
 
 	nframes = rc_info->iri_txcnt;
@@ -911,6 +912,7 @@ sample_tx_complete(const struct ieee80211vap *vap,
 	mrr = 0;
 
 	if (nframes == 0) {
+		/* XXX need some msg out */
 		return;
 	}
 
@@ -944,7 +946,6 @@ sample_tx_complete(const struct ieee80211vap *vap,
 
 	} else {
 		int finalTSIdx = rc_info->iri_finaltsi;
-		int i;
 
 		/*
 		 * NB: series > 0 are not penalized for failure
@@ -1008,18 +1009,11 @@ sample_tx_update(const struct ieee80211vap *vap, const struct ieee80211_node *ni
 static void
 sample_setinterval(const struct ieee80211vap *vap, int msecs)
 {
-	struct ieee80211_sample *sample = vap->iv_rs;
-	int t;
-
-	if (msecs < 100)
-		msecs = 100;
-	t = msecs_to_ticks(msecs);
 	/* ieee80211_sample doesn't have the sample_interval field by now */
-	// sample->sample_interval = (t < 1) ? 1 : t;
 }
 
 static void
-sample_stats(void *arg, struct ieee80211_node *ni)
+sample_stats_node(void *arg, struct ieee80211_node *ni)
 {
 	struct ieee80211vap *vap = ni->ni_vap;
 	struct ieee80211_sample_node *san = ni->ni_rctls;
@@ -1071,20 +1065,16 @@ sample_stats(void *arg, struct ieee80211_node *ni)
 		}
 	}
 }
-
-static int
-sample_sysctl_stats(SYSCTL_HANDLER_ARGS)
+static void
+sample_stats(const struct ieee80211vap *vap)
 {
-	struct ieee80211vap *vap = arg1;
 	struct ieee80211com *ic = vap->iv_ifp->if_l2com;
-	int error, v;
-
-	v = 0;
-	error = sysctl_handle_int(oidp, &v, 0, req);
-	if (error || !req->newptr)
-		return error;
-	ieee80211_iterate_nodes(&ic->ic_sta, sample_stats, NULL);
-	return 0;
+	struct ieee80211_rc_stat * irs = IEEE80211_RATECTL_STAT(vap);
+	printf("tx count: %d (ok count: %d, fail count: %d)\n"
+			"retry count: %d (short retry: %d, long retry: %d)\n",
+			irs->irs_txcnt, irs->irs_txcnt - irs->irs_failcnt, irs->irs_failcnt,
+			irs->irs_retrycnt, irs->irs_shortretry, irs->irs_longretry);
+	ieee80211_iterate_nodes(&ic->ic_sta, sample_stats_node, NULL);
 }
 
 static int
@@ -1134,8 +1124,4 @@ sample_sysctlattach(struct ieee80211vap *vap,
 	    "sample_rate", CTLTYPE_INT | CTLFLAG_RW, vap, 0,
 	    sample_sysctl_sample_rate, "I",
 	    "sample: percent air time devoted to sampling new rates (%%)");
-	/* XXX max_successive_failures, stale_failure_timeout, min_switch */
-	SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
-	    "sample_stats", CTLTYPE_INT | CTLFLAG_RW, vap, 0,
-	    sample_sysctl_stats, "I", "sample: print statistics");
 }
